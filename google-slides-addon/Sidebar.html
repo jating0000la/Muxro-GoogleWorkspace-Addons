@@ -329,14 +329,29 @@
     }).done(function(resp) {
       try {
         var text = resp.response || '';
-        var match = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (match) {
-          generatedSlides = JSON.parse(sanitizeJSON(match[0]));
-          var preview = generatedSlides.map(function(s, i) {
-            return 'Slide ' + (i+1) + ': ' + s.title + '\n  ' + (s.bullets||[]).join('\n  ');
-          }).join('\n\n');
-          setColoredResponse('genResponse', preview, 'generate');
-          $('#genActions').show();
+        // Try parsing as a single array first
+        var singleMatch = text.match(/\[\s*\{[\s\S]*?\}\s*\]/g);
+        if (singleMatch && singleMatch.length > 0) {
+          // Merge multiple separate arrays (model sometimes outputs one array per slide)
+          var merged = [];
+          singleMatch.forEach(function(block) {
+            try {
+              var parsed = JSON.parse(sanitizeJSON(block));
+              if (Array.isArray(parsed)) {
+                merged = merged.concat(parsed);
+              }
+            } catch(e2) { /* skip unparseable block */ }
+          });
+          if (merged.length > 0) {
+            generatedSlides = merged;
+            var preview = generatedSlides.map(function(s, i) {
+              return 'Slide ' + (i+1) + ': ' + s.title + '\n  ' + (s.bullets||[]).join('\n  ');
+            }).join('\n\n');
+            setColoredResponse('genResponse', preview, 'generate');
+            $('#genActions').show();
+          } else {
+            setColoredResponse('genResponse', 'AI response:\n' + text, 'generate');
+          }
         } else {
           setColoredResponse('genResponse', 'AI response:\n' + text, 'generate');
         }
