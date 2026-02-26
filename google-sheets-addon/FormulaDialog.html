@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: 'Google Sans', Arial, sans-serif; padding: 20px; font-size: 13px; }
+    textarea { width: 100%; padding: 10px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; min-height: 80px; resize: vertical; }
+    textarea:focus { outline: none; border-color: #4285f4; }
+    input { width: 100%; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; }
+    label { display: block; font-weight: 500; margin-bottom: 4px; margin-top: 12px; color: #5f6368; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .btn-primary { background: #4285f4; color: white; }
+    .btn-primary:hover { background: #3367d6; }
+    .btn-success { background: #34a853; color: white; margin-left: 8px; }
+    .result { margin-top: 12px; padding: 12px; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-family: monospace; font-size: 13px; white-space: pre-wrap; display: none; }
+    .loading { text-align: center; padding: 12px; display: none; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #e0e0e0; border-top-color: #4285f4; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body>
+  <h3 style="margin:0 0 8px 0;">🧮 AI Formula Generator</h3>
+
+  <label>Describe the formula you need</label>
+  <textarea id="desc" placeholder="e.g., Sum all values in column B where the date in column C is in January 2024"></textarea>
+
+  <label>Sheet context (optional)</label>
+  <input type="text" id="context" placeholder="e.g., A=Product, B=Revenue, C=Date, D=Region" />
+
+  <div style="margin-top:16px;">
+    <button class="btn btn-primary" onclick="generate()">Generate Formula</button>
+    <button class="btn btn-success" id="insertBtn" style="display:none;" onclick="insertIt()">Insert into Cell</button>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div style="margin-top:6px;color:#5f6368;">Generating formula...</div>
+  </div>
+
+  <div class="result" id="result"></div>
+
+<script>
+  var formula = '';
+
+  function generate() {
+    var desc = $('#desc').val().trim();
+    if (!desc) return;
+
+    $('#loading').show();
+    $('#result').hide();
+    $('#insertBtn').hide();
+
+    $.ajax({
+      url: 'http://localhost:9100/api/sheets/formula',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({
+        description: desc,
+        context: $('#context').val()
+      }),
+      timeout: 60000
+    }).done(function(resp) {
+      formula = (resp.response || '').trim();
+      $('#result').text(formula).show();
+      $('#insertBtn').show();
+    }).fail(function() {
+      $('#result').text('Error: Cannot connect. Is the Muxro AI Connector running?').show();
+    }).always(function() {
+      $('#loading').hide();
+    });
+  }
+
+  function insertIt() {
+    if (!formula) return;
+    google.script.run.withSuccessHandler(function() {
+      google.script.host.close();
+    }).writeToCell(formula, null, null);
+  }
+</script>
+</body>
+</html>

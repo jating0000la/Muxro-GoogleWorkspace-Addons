@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #333; background: #f8f9fa; }
+    
+    .header { background: linear-gradient(135deg, #4285f4, #ea4335); color: white; padding: 16px; text-align: center; }
+    .header h2 { font-size: 16px; margin-bottom: 4px; }
+    .header .status { font-size: 11px; opacity: 0.9; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .status-dot.connected { background: #81c784; }
+    .status-dot.disconnected { background: #ef5350; }
+    
+    .section { padding: 12px; border-bottom: 1px solid #e0e0e0; background: white; }
+    .section-title { font-weight: 600; font-size: 12px; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    
+    select, input, textarea { width: 100%; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; font-family: inherit; outline: none; }
+    select:focus, input:focus, textarea:focus { border-color: #4285f4; box-shadow: 0 0 0 2px rgba(66,133,244,0.1); }
+    textarea { min-height: 80px; resize: vertical; }
+    
+    .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; width: 100%; text-align: center; }
+    .btn-primary { background: #4285f4; color: white; }
+    .btn-primary:hover { background: #3367d6; }
+    .btn-secondary { background: #f1f3f4; color: #3c4043; border: 1px solid #dadce0; }
+    .btn-secondary:hover { background: #e8eaed; }
+    .btn-danger { background: #ea4335; color: white; }
+    .btn-success { background: #34a853; color: white; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    
+    .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn-group .btn { width: auto; flex: 1; font-size: 11px; padding: 6px 10px; min-width: 0; }
+    
+    .response-area { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; margin-top: 8px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.5; display: none; border-left: 4px solid #9e9e9e; }
+    .response-area.visible { display: block; }
+
+    /* ─── Color coding for each operation type ─── */
+    .response-area .color-tag { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 3px; margin-bottom: 6px; }
+    /* Summarize = Green */
+    .response-area.color-summarize { border-left-color: #34a853; background: #e6f4ea; }
+    .response-area.color-summarize .color-tag { background: #34a853; color: white; }
+    /* Expand = Indigo */
+    .response-area.color-expand { border-left-color: #3f51b5; background: #e8eaf6; }
+    .response-area.color-expand .color-tag { background: #3f51b5; color: white; }
+    /* Rewrite = Blue */
+    .response-area.color-rewrite { border-left-color: #4285f4; background: #eaf1fd; }
+    .response-area.color-rewrite .color-tag { background: #4285f4; color: white; }
+    /* Proofread / Correction = Red */
+    .response-area.color-proofread { border-left-color: #ea4335; background: #fce8e6; }
+    .response-area.color-proofread .color-tag { background: #ea4335; color: white; }
+    /* Formal Tone = Dark Purple */
+    .response-area.color-formal { border-left-color: #7b1fa2; background: #f3e5f5; }
+    .response-area.color-formal .color-tag { background: #7b1fa2; color: white; }
+    /* Casual Tone = Teal */
+    .response-area.color-casual { border-left-color: #00897b; background: #e0f2f1; }
+    .response-area.color-casual .color-tag { background: #00897b; color: white; }
+    /* Bullet Points = Orange */
+    .response-area.color-bullets { border-left-color: #fa7b17; background: #fef3e6; }
+    .response-area.color-bullets .color-tag { background: #fa7b17; color: white; }
+    /* Outline = Deep Orange */
+    .response-area.color-outline { border-left-color: #e64a19; background: #fbe9e7; }
+    .response-area.color-outline .color-tag { background: #e64a19; color: white; }
+    /* Translate = Cyan */
+    .response-area.color-translate { border-left-color: #0097a7; background: #e0f7fa; }
+    .response-area.color-translate .color-tag { background: #0097a7; color: white; }
+    /* Generate = Purple */
+    .response-area.color-generate { border-left-color: #9334e6; background: #f3e8fd; }
+    .response-area.color-generate .color-tag { background: #9334e6; color: white; }
+    /* Custom = Amber */
+    .response-area.color-custom { border-left-color: #f9a825; background: #fff8e1; }
+    .response-area.color-custom .color-tag { background: #f9a825; color: #333; }
+    /* Chat = Blue */
+    .response-area.color-chat { border-left-color: #1565c0; background: #e3f2fd; }
+    .response-area.color-chat .color-tag { background: #1565c0; color: white; }
+    /* Error = Dark Red */
+    .response-area.color-error { border-left-color: #d93025; background: #fce8e6; }
+
+    /* Color legend */
+    .color-legend { padding: 6px 12px; background: white; border-bottom: 1px solid #e0e0e0; display: flex; flex-wrap: wrap; gap: 2px 8px; }
+    .legend-item { display: inline-flex; align-items: center; font-size: 10px; color: #5f6368; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; display: inline-block; }
+    
+    .loading { display: none; text-align: center; padding: 12px; }
+    .loading.visible { display: block; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #e0e0e0; border-top-color: #4285f4; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 4px; font-weight: 500; }
+    .action-row { margin-top: 8px; display: flex; gap: 6px; }
+    .action-row .btn { flex: 1; }
+    
+    .tab-bar { display: flex; border-bottom: 2px solid #e0e0e0; }
+    .tab { padding: 8px 14px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; color: #5f6368; transition: all 0.2s; }
+    .tab.active { color: #4285f4; border-bottom-color: #4285f4; font-weight: 500; }
+    
+    .wordcount { font-size: 11px; color: #80868b; margin-top: 4px; }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body>
+
+  <div class="header">
+    <h2>📝 Muxro AI Writer</h2>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Checking connection...</span>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" data-tab="edit">Edit Text</div>
+    <div class="tab" data-tab="generate">Generate</div>
+    <div class="tab" data-tab="chat">Ask AI</div>
+  </div>
+
+  <!-- Color Legend -->
+  <div class="color-legend">
+    <span class="legend-item"><span class="legend-dot" style="background:#34a853;"></span>Summary</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#3f51b5;"></span>Expand</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#4285f4;"></span>Rewrite</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#ea4335;"></span>Proofread</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#7b1fa2;"></span>Formal</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#00897b;"></span>Casual</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#fa7b17;"></span>Bullets</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#0097a7;"></span>Translate</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#9334e6;"></span>Generate</span>
+  </div>
+
+  <!-- Edit Text Tab -->
+  <div id="tab-edit" class="tab-content">
+    <div class="section">
+      <div class="section-title">Transform Selected Text</div>
+      <p style="font-size:12px;color:#5f6368;margin-bottom:10px;">Select text in your document, then choose an action:</p>
+      
+      <div class="btn-group">
+        <button class="btn btn-secondary" onclick="processText('summarize')">📋 Summarize</button>
+        <button class="btn btn-secondary" onclick="processText('expand')">📖 Expand</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="processText('rewrite')">✍️ Rewrite</button>
+        <button class="btn btn-secondary" onclick="processText('proofread')">🔍 Proofread</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="processText('tone_formal')">👔 Formal</button>
+        <button class="btn btn-secondary" onclick="processText('tone_casual')">😊 Casual</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="processText('bullet_points')">📌 Bullets</button>
+        <button class="btn btn-secondary" onclick="processText('outline')">📑 Outline</button>
+      </div>
+      
+      <div style="margin-top:10px;">
+        <label>Translate to</label>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="translateLang" placeholder="e.g., Spanish, French, Hindi" style="flex:1;" />
+          <button class="btn btn-primary" style="width:auto;padding:8px 14px;" onclick="translateText()">Translate</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Custom Instruction</div>
+      <textarea id="customInstruction" placeholder="e.g., Make this text more persuasive, add examples..."></textarea>
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="processText('custom', document.getElementById('customInstruction').value)">Apply to Selection</button>
+      </div>
+    </div>
+    
+    <div class="loading" id="editLoading">
+      <div class="spinner"></div>
+      <div style="margin-top:6px;font-size:11px;color:#5f6368;">Processing...</div>
+    </div>
+    
+    <div class="section" style="padding:8px 12px;">
+      <div class="response-area" id="editResponse"></div>
+      <div class="action-row" id="editActions" style="display:none;">
+        <button class="btn btn-success" onclick="replaceText()">Replace Selection</button>
+        <button class="btn btn-secondary" onclick="insertText()">Insert After</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generate Tab -->
+  <div id="tab-generate" class="tab-content" style="display:none;">
+    <div class="section">
+      <div class="section-title">Generate Content</div>
+      
+      <label>Content Type</label>
+      <select id="genType">
+        <option value="article">Article</option>
+        <option value="email">Email</option>
+        <option value="letter">Letter</option>
+        <option value="report">Report</option>
+        <option value="essay">Essay</option>
+        <option value="blog">Blog Post</option>
+        <option value="proposal">Business Proposal</option>
+      </select>
+      
+      <label style="margin-top:8px;">Topic / Subject</label>
+      <textarea id="genTopic" placeholder="Describe what you want to write about..."></textarea>
+      
+      <label>Length</label>
+      <select id="genLength">
+        <option value="short">Short (1-2 paragraphs)</option>
+        <option value="medium" selected>Medium (3-5 paragraphs)</option>
+        <option value="long">Long (6+ paragraphs)</option>
+      </select>
+      
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="generateContent()">Generate</button>
+      </div>
+    </div>
+    
+    <div class="loading" id="genLoading">
+      <div class="spinner"></div>
+      <div style="margin-top:6px;font-size:11px;color:#5f6368;">Generating content...</div>
+    </div>
+    
+    <div class="section" style="padding:8px 12px;">
+      <div class="response-area" id="genResponse"></div>
+      <div class="action-row" id="genActions" style="display:none;">
+        <button class="btn btn-success" onclick="insertGenerated()">Insert into Document</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Tab -->
+  <div id="tab-chat" class="tab-content" style="display:none;">
+    <div class="section">
+      <label>Model</label>
+      <select id="modelSelect">
+        <option value="">Loading...</option>
+      </select>
+      
+      <label style="margin-top:8px;">Ask about your document</label>
+      <textarea id="chatInput" placeholder="e.g., What's the main theme? Suggest a better title? How can I improve the introduction?"></textarea>
+      
+      <div class="action-row">
+        <button class="btn btn-primary" id="btnChat" onclick="sendChat()">Send</button>
+      </div>
+      
+      <div class="loading" id="chatLoading">
+        <div class="spinner"></div>
+        <div style="margin-top:6px;font-size:11px;color:#5f6368;">Thinking...</div>
+      </div>
+      
+      <div class="response-area" id="chatResponse"></div>
+    </div>
+  </div>
+
+<script>
+  const PROXY = 'http://localhost:9100';
+  let lastResult = '';
+  let lastGenerated = '';
+  let lastOperationColor = 'chat';
+
+  // ─── Color coding map ─────────────────────────────────────────────
+  const DOCS_COLOR_MAP = {
+    summarize:    { cls: 'color-summarize',  label: 'SUMMARY' },
+    expand:       { cls: 'color-expand',     label: 'EXPANDED' },
+    rewrite:      { cls: 'color-rewrite',    label: 'REWRITTEN' },
+    proofread:    { cls: 'color-proofread',  label: 'PROOFREAD' },
+    tone_formal:  { cls: 'color-formal',     label: 'FORMAL' },
+    tone_casual:  { cls: 'color-casual',     label: 'CASUAL' },
+    bullet_points:{ cls: 'color-bullets',    label: 'BULLETS' },
+    outline:      { cls: 'color-outline',    label: 'OUTLINE' },
+    translate:    { cls: 'color-translate',   label: 'TRANSLATION' },
+    custom:       { cls: 'color-custom',     label: 'CUSTOM' },
+    generate:     { cls: 'color-generate',   label: 'GENERATED' },
+    chat:         { cls: 'color-chat',       label: 'CHAT' },
+    error:        { cls: 'color-error',      label: 'ERROR' }
+  };
+
+  var ALL_COLOR_CLASSES = Object.values(DOCS_COLOR_MAP).map(function(v){ return v.cls; }).join(' ');
+
+  function setColoredResponse(elementId, text, colorKey) {
+    var el = $('#' + elementId);
+    el.removeClass(ALL_COLOR_CLASSES);
+    var info = DOCS_COLOR_MAP[colorKey] || DOCS_COLOR_MAP.chat;
+    el.addClass(info.cls);
+    el.html('<span class="color-tag">' + info.label + '</span>\n' + $('<span>').text(text).html());
+    el.addClass('visible');
+  }
+
+  // Tab switching
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+      this.classList.add('active');
+      document.getElementById('tab-' + this.dataset.tab).style.display = 'block';
+    });
+  });
+
+  // Check connection
+  function checkConnection() {
+    $.ajax({ url: PROXY + '/api/status', method: 'GET', timeout: 5000 })
+      .done(function(resp) {
+        if (resp.status === 'connected') {
+          $('#statusDot').addClass('connected');
+          $('#statusText').text('Connected to Ollama');
+          loadModels(resp.models);
+        } else {
+          setDisconnected('Ollama not running');
+        }
+      }).fail(function() {
+        setDisconnected('Connector not running');
+      });
+  }
+
+  function setDisconnected(msg) {
+    $('#statusDot').addClass('disconnected');
+    $('#statusText').text(msg);
+  }
+
+  function loadModels(models) {
+    let sel = $('#modelSelect').empty();
+    if (models && models.length) {
+      models.forEach(m => sel.append($('<option>').val(m.name).text(m.name)));
+    } else {
+      sel.append($('<option>').text('No models available'));
+    }
+  }
+
+  function formatSize(b) {
+    return b ? (b > 1073741824 ? (b/1073741824).toFixed(1)+' GB' : (b/1048576).toFixed(0)+' MB') : '';
+  }
+
+  // ─── Process Text ──────────────────────────────────────────────────
+  function processText(operation, customInstruction) {
+    lastOperationColor = operation;
+    $('#editLoading').addClass('visible');
+    $('#editResponse').removeClass('visible');
+    $('#editActions').hide();
+
+    google.script.run.withSuccessHandler(function(sel) {
+      if (sel.error) {
+        $('#editLoading').removeClass('visible');
+        alert('Please select some text in your document first.');
+        return;
+      }
+
+      $.ajax({
+        url: PROXY + '/api/docs/process',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+          text: sel.text,
+          operation: operation,
+          customInstruction: customInstruction,
+          model: $('#modelSelect').val() || undefined
+        }),
+        timeout: 300000
+      }).done(function(resp) {
+        lastResult = resp.response || '';
+        setColoredResponse('editResponse', lastResult, operation);
+        $('#editActions').show();
+      }).fail(function() {
+        setColoredResponse('editResponse', 'Error: Cannot connect. Is the connector running?', 'error');
+      }).always(function() {
+        $('#editLoading').removeClass('visible');
+      });
+    }).getSelectedText();
+  }
+
+  function translateText() {
+    var lang = $('#translateLang').val().trim();
+    if (!lang) return;
+    processText('translate', lang);
+  }
+
+  function replaceText() {
+    if (!lastResult) return;
+    google.script.run.replaceSelectedText(lastResult);
+    $('#editActions').hide();
+    setColoredResponse('editResponse', lastResult + '\n\n✅ Replaced!', 'success');
+  }
+
+  function insertText() {
+    if (!lastResult) return;
+    google.script.run.appendAfterSelection(lastResult);
+    $('#editActions').hide();
+    setColoredResponse('editResponse', lastResult + '\n\n✅ Inserted!', 'success');
+  }
+
+  // ─── Generate Content ──────────────────────────────────────────────
+  function generateContent() {
+    var topic = $('#genTopic').val().trim();
+    if (!topic) return;
+
+    $('#genLoading').addClass('visible');
+    $('#genResponse').removeClass('visible');
+    $('#genActions').hide();
+
+    $.ajax({
+      url: PROXY + '/api/docs/generate',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({
+        topic: topic,
+        type: $('#genType').val(),
+        length: $('#genLength').val(),
+        model: $('#modelSelect').val() || undefined
+      }),
+      timeout: 300000
+    }).done(function(resp) {
+      lastGenerated = resp.response || '';
+      setColoredResponse('genResponse', lastGenerated, 'generate');
+      $('#genActions').show();
+    }).fail(function() {
+      setColoredResponse('genResponse', 'Error: Cannot connect.', 'error');
+    }).always(function() {
+      $('#genLoading').removeClass('visible');
+    });
+  }
+
+  function insertGenerated() {
+    if (!lastGenerated) return;
+    google.script.run.insertAtCursor(lastGenerated);
+    $('#genActions').hide();
+    setColoredResponse('genResponse', lastGenerated + '\n\n✅ Inserted into document!', 'success');
+  }
+
+  // ─── Chat ─────────────────────────────────────────────────────────
+  function sendChat() {
+    var msg = $('#chatInput').val().trim();
+    if (!msg) return;
+
+    $('#chatLoading').addClass('visible');
+    $('#chatResponse').removeClass('visible');
+    $('#btnChat').prop('disabled', true);
+
+    google.script.run.withSuccessHandler(function(docData) {
+      var prompt = msg;
+      if (docData && docData.text) {
+        var excerpt = docData.text.substring(0, 10000);
+        prompt = 'Document title: ' + docData.title + '\nDocument content (excerpt):\n' + excerpt + '\n\nUser question: ' + msg;
+      }
+
+      $.ajax({
+        url: PROXY + '/api/generate',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+          prompt: prompt,
+          model: $('#modelSelect').val() || undefined,
+          system: 'You are a writing assistant helping with a Google Docs document. Provide helpful, actionable advice.'
+        }),
+        timeout: 300000
+      }).done(function(resp) {
+        setColoredResponse('chatResponse', resp.response || JSON.stringify(resp), 'chat');
+      }).fail(function() {
+        setColoredResponse('chatResponse', 'Error: Cannot connect.', 'error');
+      }).always(function() {
+        $('#chatLoading').removeClass('visible');
+        $('#btnChat').prop('disabled', false);
+      });
+    }).getDocumentText();
+  }
+
+  $('#chatInput').on('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+
+  checkConnection();
+</script>
+
+</body>
+</html>

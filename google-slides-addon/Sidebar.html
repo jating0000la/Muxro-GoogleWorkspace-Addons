@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #333; background: #f8f9fa; }
+    
+    .header { background: linear-gradient(135deg, #fbbc04, #ea4335); color: white; padding: 16px; text-align: center; }
+    .header h2 { font-size: 16px; margin-bottom: 4px; }
+    .header .status { font-size: 11px; opacity: 0.9; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .status-dot.connected { background: #81c784; }
+    .status-dot.disconnected { background: #ffffff80; }
+    
+    .section { padding: 12px; border-bottom: 1px solid #e0e0e0; background: white; }
+    .section-title { font-weight: 600; font-size: 12px; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    
+    select, input, textarea { width: 100%; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; font-family: inherit; outline: none; }
+    select:focus, input:focus, textarea:focus { border-color: #4285f4; box-shadow: 0 0 0 2px rgba(66,133,244,0.1); }
+    textarea { min-height: 70px; resize: vertical; }
+    
+    .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; width: 100%; text-align: center; }
+    .btn-primary { background: #4285f4; color: white; }
+    .btn-primary:hover { background: #3367d6; }
+    .btn-secondary { background: #f1f3f4; color: #3c4043; border: 1px solid #dadce0; }
+    .btn-secondary:hover { background: #e8eaed; }
+    .btn-success { background: #34a853; color: white; }
+    .btn-warning { background: #fbbc04; color: #333; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    
+    .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn-group .btn { width: auto; flex: 1; font-size: 11px; padding: 6px 10px; }
+    
+    .response-area { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; margin-top: 8px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.5; display: none; }
+    .response-area.visible { display: block; }
+
+    /* ─── Color-coded response classes ─── */
+    .color-generate { border-left: 4px solid #9334e6; background: #f3e8fd; color: #4a148c; }
+    .color-enhance { border-left: 4px solid #4285f4; background: #e8f0fe; color: #1a237e; }
+    .color-simplify { border-left: 4px solid #34a853; background: #e6f4ea; color: #1b5e20; }
+    .color-formal { border-left: 4px solid #3f51b5; background: #e8eaf6; color: #1a237e; }
+    .color-detail { border-left: 4px solid #ff6f00; background: #fff3e0; color: #e65100; }
+    .color-notes { border-left: 4px solid #00897b; background: #e0f2f1; color: #004d40; }
+    .color-fix { border-left: 4px solid #ea4335; background: #fce8e6; color: #b71c1c; }
+    .color-chat { border-left: 4px solid #4285f4; background: #e8f0fe; color: #1565c0; }
+    .color-batch { border-left: 4px solid #e64a19; background: #fbe9e7; color: #bf360c; }
+    .color-custom { border-left: 4px solid #f9a825; background: #fff8e1; color: #f57f17; }
+    .color-success { border-left: 4px solid #2e7d32; background: #e8f5e9; color: #1b5e20; }
+    .color-error { border-left: 4px solid #d32f2f; background: #ffebee; color: #b71c1c; }
+
+    .color-legend { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px; background: #fff; border-bottom: 1px solid #e0e0e0; }
+    .color-legend .chip { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+    .chip-generate { background: #f3e8fd; color: #7b1fa2; }
+    .chip-enhance { background: #e8f0fe; color: #1565c0; }
+    .chip-simplify { background: #e6f4ea; color: #2e7d32; }
+    .chip-formal { background: #e8eaf6; color: #283593; }
+    .chip-detail { background: #fff3e0; color: #e65100; }
+    .chip-notes { background: #e0f2f1; color: #00695c; }
+    .chip-fix { background: #fce8e6; color: #c62828; }
+    .chip-chat { background: #e8f0fe; color: #1565c0; }
+    
+    .loading { display: none; text-align: center; padding: 12px; }
+    .loading.visible { display: block; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #e0e0e0; border-top-color: #4285f4; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 4px; font-weight: 500; }
+    .action-row { margin-top: 8px; }
+    
+    .tab-bar { display: flex; border-bottom: 2px solid #e0e0e0; }
+    .tab { padding: 8px 12px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; color: #5f6368; transition: all 0.2s; }
+    .tab.active { color: #ea4335; border-bottom-color: #ea4335; font-weight: 500; }
+    
+    .slide-preview { background: #f1f3f4; border: 1px solid #dadce0; border-radius: 6px; padding: 8px; margin: 4px 0; font-size: 12px; }
+    .slide-preview .slide-num { font-weight: 600; color: #ea4335; }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body>
+
+  <div class="header">
+    <h2>🎯 Muxro AI for Slides</h2>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Checking connection...</span>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" data-tab="generate">Generate</div>
+    <div class="tab" data-tab="improve">Improve</div>
+    <div class="tab" data-tab="chat">Ask AI</div>
+  </div>
+
+  <div class="color-legend">
+    <span class="chip chip-generate">Generate</span>
+    <span class="chip chip-enhance">Enhance</span>
+    <span class="chip chip-simplify">Simplify</span>
+    <span class="chip chip-formal">Formal</span>
+    <span class="chip chip-detail">Detail</span>
+    <span class="chip chip-notes">Notes</span>
+    <span class="chip chip-fix">Fix</span>
+    <span class="chip chip-chat">Chat</span>
+  </div>
+
+  <!-- Generate Tab -->
+  <div id="tab-generate" class="tab-content">
+    <div class="section">
+      <div class="section-title">Generate New Slides</div>
+      
+      <label>Presentation Topic</label>
+      <textarea id="genTopic" placeholder="e.g., Quarterly sales report, Introduction to machine learning, Product launch plan..."></textarea>
+      
+      <label>Number of Slides</label>
+      <select id="slideCount">
+        <option value="5">5 slides</option>
+        <option value="8" selected>8 slides</option>
+        <option value="10">10 slides</option>
+        <option value="12">12 slides</option>
+        <option value="15">15 slides</option>
+      </select>
+      
+      <label>Style</label>
+      <select id="slideStyle">
+        <option value="professional">Professional / Business</option>
+        <option value="educational">Educational / Tutorial</option>
+        <option value="creative">Creative / Pitch</option>
+        <option value="technical">Technical / Engineering</option>
+        <option value="minimal">Minimal / Clean</option>
+      </select>
+      
+      <label>Model</label>
+      <select id="modelSelect">
+        <option value="">Loading...</option>
+      </select>
+      
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="generateSlides()">🎨 Generate Presentation</button>
+      </div>
+    </div>
+    
+    <div class="loading" id="genLoading">
+      <div class="spinner"></div>
+      <div style="margin-top:6px;font-size:11px;color:#5f6368;">Generating slides... this may take a minute</div>
+    </div>
+    
+    <div class="section" style="padding:8px 12px;">
+      <div class="response-area" id="genResponse"></div>
+      <div id="genActions" style="display:none;margin-top:8px;">
+        <button class="btn btn-success" onclick="createSlides()">Create Slides in Presentation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Improve Tab -->
+  <div id="tab-improve" class="tab-content" style="display:none;">
+    <div class="section">
+      <div class="section-title">Improve Current Slide</div>
+      <p style="font-size:12px;color:#5f6368;margin-bottom:8px;">Select a slide, then choose how to improve it:</p>
+      
+      <div class="btn-group">
+        <button class="btn btn-secondary" onclick="improveSlide('Make the content more engaging and impactful')">✨ Enhance</button>
+        <button class="btn btn-secondary" onclick="improveSlide('Simplify and make more concise')">📝 Simplify</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="improveSlide('Make more professional and formal')">👔 Formal</button>
+        <button class="btn btn-secondary" onclick="improveSlide('Add more detail and depth')">📖 Detail</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="generateNotes()">🎙️ Add Notes</button>
+        <button class="btn btn-secondary" onclick="improveSlide('Fix grammar and improve wording')">🔧 Fix</button>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Custom Improvement</div>
+      <textarea id="customImprovement" placeholder="e.g., Add statistics, make more persuasive, restructure the points..."></textarea>
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="improveSlide(document.getElementById('customImprovement').value)">Apply to Current Slide</button>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Batch Operations</div>
+      <div class="btn-group">
+        <button class="btn btn-warning" onclick="batchNotes()">🎙️ Notes for All Slides</button>
+      </div>
+    </div>
+    
+    <div class="loading" id="improveLoading">
+      <div class="spinner"></div>
+      <div style="margin-top:6px;font-size:11px;color:#5f6368;">Improving...</div>
+    </div>
+    
+    <div class="section" style="padding:8px 12px;">
+      <div class="response-area" id="improveResponse"></div>
+      <div id="improveActions" style="display:none;margin-top:8px;">
+        <button class="btn btn-success" onclick="applyImprovement()">Apply Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Tab -->
+  <div id="tab-chat" class="tab-content" style="display:none;">
+    <div class="section">
+      <label>Ask about your presentation</label>
+      <textarea id="chatInput" placeholder="e.g., How can I make this presentation more impactful? What's missing? Suggest design tips..."></textarea>
+      
+      <div class="action-row">
+        <button class="btn btn-primary" id="btnChat" onclick="sendChat()">Send</button>
+      </div>
+      
+      <div class="loading" id="chatLoading">
+        <div class="spinner"></div>
+        <div style="margin-top:6px;font-size:11px;color:#5f6368;">Thinking...</div>
+      </div>
+      
+      <div class="response-area" id="chatResponse"></div>
+    </div>
+  </div>
+
+<script>
+  const PROXY = 'http://localhost:9100';
+  let generatedSlides = null;
+  let improvedData = null;
+  let lastImproveColor = 'enhance';
+
+  const SLIDES_COLOR_MAP = {
+    generate:  { cls: 'color-generate', label: 'Generation' },
+    enhance:   { cls: 'color-enhance',  label: 'Enhance' },
+    simplify:  { cls: 'color-simplify', label: 'Simplify' },
+    formal:    { cls: 'color-formal',   label: 'Formal' },
+    detail:    { cls: 'color-detail',   label: 'Detail' },
+    notes:     { cls: 'color-notes',    label: 'Notes' },
+    fix:       { cls: 'color-fix',      label: 'Fix' },
+    chat:      { cls: 'color-chat',     label: 'Chat' },
+    batch:     { cls: 'color-batch',    label: 'Batch' },
+    custom:    { cls: 'color-custom',   label: 'Custom' },
+    success:   { cls: 'color-success',  label: 'Success' },
+    error:     { cls: 'color-error',    label: 'Error' }
+  };
+  const ALL_SLIDE_COLORS = Object.values(SLIDES_COLOR_MAP).map(c => c.cls).join(' ');
+
+  function setColoredResponse(elementId, text, colorKey) {
+    var $el = $('#' + elementId);
+    $el.removeClass(ALL_SLIDE_COLORS);
+    var mapping = SLIDES_COLOR_MAP[colorKey] || SLIDES_COLOR_MAP['chat'];
+    $el.text(text).addClass('visible ' + mapping.cls);
+  }
+
+  function detectImproveColor(instruction) {
+    var i = (instruction || '').toLowerCase();
+    if (i.indexOf('engaging') >= 0 || i.indexOf('impactful') >= 0) return 'enhance';
+    if (i.indexOf('simplify') >= 0 || i.indexOf('concise') >= 0) return 'simplify';
+    if (i.indexOf('professional') >= 0 || i.indexOf('formal') >= 0) return 'formal';
+    if (i.indexOf('detail') >= 0 || i.indexOf('depth') >= 0) return 'detail';
+    if (i.indexOf('fix') >= 0 || i.indexOf('grammar') >= 0) return 'fix';
+    return 'custom';
+  }
+
+  // Tab switching
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+      this.classList.add('active');
+      document.getElementById('tab-' + this.dataset.tab).style.display = 'block';
+    });
+  });
+
+  // Check connection
+  function checkConnection() {
+    $.ajax({ url: PROXY + '/api/status', method: 'GET', timeout: 5000 })
+      .done(function(resp) {
+        if (resp.status === 'connected') {
+          $('#statusDot').addClass('connected');
+          $('#statusText').text('Connected to Ollama');
+          loadModels(resp.models);
+        } else {
+          setDisconnected('Ollama not running');
+        }
+      }).fail(function() {
+        setDisconnected('Connector not running');
+      });
+  }
+
+  function setDisconnected(msg) {
+    $('#statusDot').addClass('disconnected');
+    $('#statusText').text(msg);
+  }
+
+  function loadModels(models) {
+    var sel = $('#modelSelect').empty();
+    if (models && models.length) {
+      models.forEach(function(m) { sel.append($('<option>').val(m.name).text(m.name)); });
+    } else {
+      sel.append($('<option>').text('No models'));
+    }
+  }
+
+  // ─── Generate Slides ──────────────────────────────────────────────
+  function generateSlides() {
+    var topic = $('#genTopic').val().trim();
+    if (!topic) return;
+
+    $('#genLoading').addClass('visible');
+    $('#genResponse').removeClass('visible');
+    $('#genActions').hide();
+
+    $.ajax({
+      url: PROXY + '/api/slides/generate',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({
+        topic: topic,
+        slideCount: parseInt($('#slideCount').val()),
+        style: $('#slideStyle').val(),
+        model: $('#modelSelect').val() || undefined
+      }),
+      timeout: 300000
+    }).done(function(resp) {
+      try {
+        var text = resp.response || '';
+        var match = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (match) {
+          generatedSlides = JSON.parse(match[0]);
+          var preview = generatedSlides.map(function(s, i) {
+            return 'Slide ' + (i+1) + ': ' + s.title + '\n  ' + (s.bullets||[]).join('\n  ');
+          }).join('\n\n');
+          setColoredResponse('genResponse', preview, 'generate');
+          $('#genActions').show();
+        } else {
+          setColoredResponse('genResponse', 'AI response:\n' + text, 'generate');
+        }
+      } catch(e) {
+        setColoredResponse('genResponse', 'Parse error: ' + e.message + '\n\nRaw:\n' + (resp.response||''), 'error');
+      }
+    }).fail(function() {
+      setColoredResponse('genResponse', 'Error: Cannot connect.', 'error');
+    }).always(function() {
+      $('#genLoading').removeClass('visible');
+    });
+  }
+
+  function createSlides() {
+    if (!generatedSlides) return;
+    google.script.run.withSuccessHandler(function(count) {
+      $('#genActions').hide();
+      setColoredResponse('genResponse', '✅ Created ' + count + ' slides! Check your presentation.', 'success');
+    }).createSlidesFromData(generatedSlides);
+  }
+
+  // ─── Improve Slide ─────────────────────────────────────────────────
+  function improveSlide(instruction) {
+    if (!instruction) return;
+    lastImproveColor = detectImproveColor(instruction);
+
+    $('#improveLoading').addClass('visible');
+    $('#improveResponse').removeClass('visible');
+    $('#improveActions').hide();
+
+    google.script.run.withSuccessHandler(function(slideInfo) {
+      if (slideInfo.error) {
+        $('#improveLoading').removeClass('visible');
+        alert('Please select a slide first.');
+        return;
+      }
+
+      $.ajax({
+        url: PROXY + '/api/generate',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+          prompt: 'Current slide content:\nTitle: ' + slideInfo.title + '\nContent:\n' + slideInfo.content + '\n\nInstruction: ' + instruction + '\n\nRespond with JSON: {"title":"Improved Title","bullets":["Point 1","Point 2","Point 3"],"notes":"Speaker notes"}',
+          model: $('#modelSelect').val() || undefined,
+          system: 'You are a presentation improvement expert. Respond with valid JSON only.'
+        }),
+        timeout: 120000
+      }).done(function(resp) {
+        try {
+          var text = resp.response || '';
+          var match = text.match(/\{[\s\S]*\}/);
+          if (match) {
+            improvedData = JSON.parse(match[0]);
+            var preview = 'Title: ' + improvedData.title + '\n\n' + (improvedData.bullets||[]).join('\n') + (improvedData.notes ? '\n\nNotes: ' + improvedData.notes : '');
+            setColoredResponse('improveResponse', preview, lastImproveColor);
+            $('#improveActions').show();
+          } else {
+            setColoredResponse('improveResponse', text, lastImproveColor);
+          }
+        } catch(e) {
+          setColoredResponse('improveResponse', resp.response || 'No response', lastImproveColor);
+        }
+      }).fail(function() {
+        setColoredResponse('improveResponse', 'Error: Cannot connect.', 'error');
+      }).always(function() {
+        $('#improveLoading').removeClass('visible');
+      });
+    }).getCurrentSlideInfo();
+  }
+
+  function applyImprovement() {
+    if (!improvedData) return;
+    google.script.run.withSuccessHandler(function() {
+      $('#improveActions').hide();
+      setColoredResponse('improveResponse', $('#improveResponse').text() + '\n\n✅ Applied!', 'success');
+    }).updateCurrentSlideContent(
+      improvedData.title,
+      (improvedData.bullets||[]).join('\n'),
+      improvedData.notes
+    );
+  }
+
+  // ─── Generate Notes ────────────────────────────────────────────────
+  function generateNotes() {
+    $('#improveLoading').addClass('visible');
+    $('#improveResponse').removeClass('visible');
+
+    google.script.run.withSuccessHandler(function(slideInfo) {
+      if (slideInfo.error) {
+        $('#improveLoading').removeClass('visible');
+        alert('Select a slide first.');
+        return;
+      }
+
+      $.ajax({
+        url: PROXY + '/api/generate',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+          prompt: 'Generate speaker notes for this slide:\nTitle: ' + slideInfo.title + '\nContent: ' + slideInfo.content + '\n\nWrite 3-5 sentences of conversational speaker notes. Plain text only.',
+          model: $('#modelSelect').val() || undefined,
+          system: 'You are a presentation coach. Write natural speaker notes.'
+        }),
+        timeout: 60000
+      }).done(function(resp) {
+        var notes = resp.response || '';
+        google.script.run.withSuccessHandler(function() {
+          setColoredResponse('improveResponse', '✅ Speaker notes added:\n\n' + notes, 'notes');
+        }).addSpeakerNotesToSlide(slideInfo.index - 1, notes);
+      }).fail(function() {
+        setColoredResponse('improveResponse', 'Error: Cannot connect.', 'error');
+      }).always(function() {
+        $('#improveLoading').removeClass('visible');
+      });
+    }).getCurrentSlideInfo();
+  }
+
+  // ─── Batch Notes ──────────────────────────────────────────────────
+  function batchNotes() {
+    if (!confirm('Generate speaker notes for ALL slides? This may take a while.')) return;
+
+    $('#improveLoading').addClass('visible');
+    setColoredResponse('improveResponse', 'Generating notes for all slides...', 'batch');
+
+    google.script.run.withSuccessHandler(function(presInfo) {
+      var completed = 0;
+      var total = presInfo.slides.length;
+
+      function processNext(i) {
+        if (i >= total) {
+          $('#improveLoading').removeClass('visible');
+          setColoredResponse('improveResponse', '✅ Added speaker notes to all ' + total + ' slides!', 'success');
+          return;
+        }
+
+        var slide = presInfo.slides[i];
+        setColoredResponse('improveResponse', 'Processing slide ' + (i+1) + ' of ' + total + '...', 'batch');
+
+        $.ajax({
+          url: PROXY + '/api/generate',
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            prompt: 'Generate speaker notes for slide ' + (i+1) + ':\nTitle: ' + slide.title + '\nContent: ' + slide.content + '\n\nWrite 2-4 sentences. Plain text.',
+            model: $('#modelSelect').val() || undefined,
+            system: 'Write natural speaker notes. Plain text only.'
+          }),
+          timeout: 60000
+        }).done(function(resp) {
+          google.script.run.withSuccessHandler(function() {
+            processNext(i + 1);
+          }).addSpeakerNotesToSlide(i, resp.response || '');
+        }).fail(function() {
+          processNext(i + 1); // Skip failed slides
+        });
+      }
+
+      processNext(0);
+    }).getPresentationInfo();
+  }
+
+  // ─── Chat ─────────────────────────────────────────────────────────
+  function sendChat() {
+    var msg = $('#chatInput').val().trim();
+    if (!msg) return;
+
+    $('#chatLoading').addClass('visible');
+    $('#chatResponse').removeClass('visible');
+    $('#btnChat').prop('disabled', true);
+
+    google.script.run.withSuccessHandler(function(presInfo) {
+      var context = 'Presentation: ' + presInfo.title + '\nSlides: ' + presInfo.slideCount + '\n';
+      presInfo.slides.forEach(function(s) {
+        context += '\nSlide ' + s.index + ': ' + s.title + '\n' + s.content + '\n';
+      });
+
+      $.ajax({
+        url: PROXY + '/api/generate',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+          prompt: context + '\nUser question: ' + msg,
+          model: $('#modelSelect').val() || undefined,
+          system: 'You are a presentation design expert. Provide helpful advice about improving presentations.'
+        }),
+        timeout: 300000
+      }).done(function(resp) {
+        setColoredResponse('chatResponse', resp.response || '', 'chat');
+      }).fail(function() {
+        setColoredResponse('chatResponse', 'Error: Cannot connect.', 'error');
+      }).always(function() {
+        $('#chatLoading').removeClass('visible');
+        $('#btnChat').prop('disabled', false);
+      });
+    }).getPresentationInfo();
+  }
+
+  $('#chatInput').on('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+
+  checkConnection();
+</script>
+
+</body>
+</html>

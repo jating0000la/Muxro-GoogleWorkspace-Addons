@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: 'Google Sans', Arial, sans-serif; padding: 20px; font-size: 13px; }
+    label { display: block; font-weight: 500; margin-bottom: 4px; margin-top: 12px; color: #5f6368; }
+    input { width: 100%; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 6px; font-size: 13px; }
+    input:focus { outline: none; border-color: #4285f4; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; margin-top: 16px; }
+    .btn-primary { background: #4285f4; color: white; }
+    .btn-primary:hover { background: #3367d6; }
+    .msg { margin-top: 12px; padding: 8px; border-radius: 6px; font-size: 12px; display: none; }
+    .msg.success { display: block; background: #e6f4ea; color: #1e8e3e; }
+    .msg.error { display: block; background: #fce8e6; color: #d93025; }
+    .help { font-size: 11px; color: #80868b; margin-top: 4px; }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body>
+  <h3 style="margin:0 0 4px 0;">Muxro AI Settings</h3>
+  <p style="color:#5f6368;font-size:12px;">Configure connection to your local Ollama instance.</p>
+
+  <label>Connector URL</label>
+  <input type="text" id="connectorUrl" placeholder="http://localhost:9100" />
+  <div class="help">URL of the Muxro AI Connector proxy</div>
+
+  <label>Default Model</label>
+  <input type="text" id="model" placeholder="llama3.2" />
+  <div class="help">Ollama model name (e.g., llama3.2, mistral, codellama)</div>
+
+  <button class="btn btn-primary" onclick="save()">Save Settings</button>
+  <button class="btn" style="background:#f1f3f4;color:#3c4043;margin-left:8px;" onclick="testConnection()">Test Connection</button>
+
+  <div class="msg" id="message"></div>
+
+<script>
+  google.script.run.withSuccessHandler(function(settings) {
+    if (settings) {
+      $('#connectorUrl').val(settings.connectorUrl || 'http://localhost:9100');
+      $('#model').val(settings.model || 'llama3.2');
+    }
+  }).loadSettings();
+
+  function save() {
+    google.script.run.withSuccessHandler(function() {
+      showMsg('Settings saved!', 'success');
+    }).saveSettings({
+      connectorUrl: $('#connectorUrl').val(),
+      model: $('#model').val()
+    });
+  }
+
+  function testConnection() {
+    var url = $('#connectorUrl').val() || 'http://localhost:9100';
+    $.ajax({ url: url + '/api/status', method: 'GET', timeout: 5000 })
+      .done(function(resp) {
+        if (resp.status === 'connected') {
+          var names = (resp.models||[]).map(m => m.name).join(', ');
+          showMsg('Connected! Models: ' + (names||'none'), 'success');
+        } else {
+          showMsg('Connector reached, but Ollama not responding.', 'error');
+        }
+      }).fail(function() {
+        showMsg('Cannot reach connector. Is it running?', 'error');
+      });
+  }
+
+  function showMsg(text, type) {
+    $('#message').removeClass('success error').addClass(type).text(text).show();
+    setTimeout(() => $('#message').fadeOut(), 5000);
+  }
+</script>
+</body>
+</html>
