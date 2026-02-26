@@ -64,7 +64,10 @@ function callOllama(prompt, opts = {}) {
       reject(new Error(`Cannot connect to Ollama: ${e.message}`));
     });
 
-    req.setTimeout(180000); // 3 min timeout for small model
+    req.setTimeout(180000, () => { // 3 min timeout for small model
+      req.destroy();
+      reject(new Error('Ollama request timed out (180s)'));
+    });
     req.write(body);
     req.end();
   });

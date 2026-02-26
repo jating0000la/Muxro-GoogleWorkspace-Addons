@@ -71,13 +71,15 @@ function fetchBing(query) {
 // Uses WinHTTP stack which honours system proxy / PAC scripts.
 function fetchWithPowerShell(url, method, body, contentType) {
   return new Promise((resolve, reject) => {
-    // Build PowerShell one-liner
+    // Build PowerShell one-liner — pass URL and body via env vars
+    // to avoid command-injection through crafted URLs
+    const env = { ...process.env, __FETCH_URL: url };
     let ps;
     if (method === 'POST' && body) {
-      const escapedBody = body.replace(/'/g, "''");
-      ps = `$ProgressPreference='SilentlyContinue'; $r=Invoke-WebRequest -Uri '${url}' -Method POST -Body '${escapedBody}' -ContentType '${contentType}' -TimeoutSec 20 -UseBasicParsing; $r.Content`;
+      env.__FETCH_BODY = body;
+      ps = "$ProgressPreference='SilentlyContinue'; $r=Invoke-WebRequest -Uri $env:__FETCH_URL -Method POST -Body $env:__FETCH_BODY -ContentType '" + contentType + "' -TimeoutSec 20 -UseBasicParsing; $r.Content";
     } else {
-      ps = `$ProgressPreference='SilentlyContinue'; $r=Invoke-WebRequest -Uri '${url}' -Method GET -TimeoutSec 20 -UseBasicParsing -Headers @{'User-Agent'='${config.search.userAgent}'}; $r.Content`;
+      ps = "$ProgressPreference='SilentlyContinue'; $r=Invoke-WebRequest -Uri $env:__FETCH_URL -Method GET -TimeoutSec 20 -UseBasicParsing; $r.Content";
     }
 
     const timer = setTimeout(() => {
@@ -88,7 +90,7 @@ function fetchWithPowerShell(url, method, body, contentType) {
     const proc = execFile(
       'powershell',
       ['-NoProfile', '-NonInteractive', '-Command', ps],
-      { maxBuffer: 15 * 1024 * 1024, encoding: 'utf8' },
+      { maxBuffer: 15 * 1024 * 1024, encoding: 'utf8', env },
       (err, stdout, stderr) => {
         clearTimeout(timer);
         if (err) return reject(new Error(`PowerShell error: ${stderr || err.message}`));
@@ -136,8 +138,9 @@ function fetchNodePost(hostname, path, body) {
 }
 
 // ── Generic GET with gzip/deflate decompression (Linux/Mac) ───────────────
-function fetchGet(url, headers = {}) {
+function fetchGet(url, headers = {}, _depth = 0) {
   return new Promise((resolve, reject) => {
+    if (_depth > 5) return reject(new Error('Too many redirects'));
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, { headers }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
@@ -147,7 +150,7 @@ function fetchGet(url, headers = {}) {
           const u = new URL(url);
           next = `${u.protocol}//${u.hostname}${next}`;
         }
-        fetchGet(next, headers).then(resolve).catch(reject);
+        fetchGet(next, headers, _depth + 1).then(resolve).catch(reject);
         return;
       }
       decompressResponse(res, (err, html) => {
@@ -162,139 +165,6 @@ function fetchGet(url, headers = {}) {
 }
 
 // ── Gzip / deflate / brotli decompression ────────────────────────────────
-function decompressResponse(res, cb) {
-  const encoding = (res.headers['content-encoding'] || '').toLowerCase();
-  const chunks = [];
-  res.on('data', (c) => chunks.push(c));
-  res.on('error', cb);
-  res.on('end', () => {
-    const buf = Buffer.concat(chunks);
-    if (encoding === 'gzip') {
-      zlib.gunzip(buf, (e, r) => cb(e, r ? r.toString('utf8') : null));
-    } else if (encoding === 'deflate') {
-      zlib.inflate(buf, (e, r) => {
-        if (e) zlib.inflateRaw(buf, (e2, r2) => cb(e2, r2 ? r2.toString('utf8') : null));
-        else cb(null, r.toString('utf8'));
-      });
-    } else if (encoding === 'br') {
-      zlib.brotliDecompress(buf, (e, r) => cb(e, r ? r.toString('utf8') : null));
-    } else {
-      cb(null, buf.toString('utf8'));
-    }
-  });
-}
-
-module.exports = { fetchSearchPage };
-
-
-/** Public entry point used by controller and server */
-async function fetchSearchPage(query) {
-  // --- Primary: DuckDuckGo ------------------------------------------------
-  try {
-    const html = await fetchDDG(query);
-    if (html && html.length > 500) {
-      console.log(`[Search] DDG OK — ${html.length} bytes`);
-      return html;
-    }
-    console.log('[Search] DDG returned short response, trying Bing...');
-  } catch (e) {
-    console.log(`[Search] DDG failed (${e.message}), trying Bing...`);
-  }
-
-  // --- Fallback: Bing ------------------------------------------------------
-  try {
-    const html = await fetchBing(query);
-    if (html && html.length > 500) {
-      console.log(`[Search] Bing OK — ${html.length} bytes`);
-      return html;
-    }
-    throw new Error('Bing returned empty response');
-  } catch (e) {
-    throw new Error(`All search engines failed. Last error: ${e.message}`);
-  }
-}
-
-// ── DuckDuckGo HTML endpoint ──────────────────────────────────────────────
-// html.duckduckgo.com/html/ accepts a POST or GET and returns static HTML
-// with organic results. No JavaScript required, no CAPTCHA.
-function fetchDDG(query) {
-  return new Promise((resolve, reject) => {
-    const body = `q=${encodeURIComponent(query)}&b=&kl=us-en`;
-    const options = {
-      hostname: 'html.duckduckgo.com',
-      path: '/html/',
-      method: 'POST',
-      headers: {
-        'User-Agent': config.search.userAgent,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(body),
-        'Connection': 'keep-alive',
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume();
-        fetchGet(res.headers.location, options.headers).then(resolve).catch(reject);
-        return;
-      }
-      decompressResponse(res, (err, html) => {
-        if (err) return reject(err);
-        if (res.statusCode !== 200) return reject(new Error(`DDG HTTP ${res.statusCode}`));
-        resolve(html);
-      });
-    });
-
-    req.on('error', reject);
-    req.setTimeout(config.search.timeout, () => { req.destroy(); reject(new Error('DDG timeout')); });
-    req.write(body);
-    req.end();
-  });
-}
-
-// ── Bing HTML endpoint ────────────────────────────────────────────────────
-function fetchBing(query) {
-  const path = `/search?q=${encodeURIComponent(query)}&count=10&setlang=en-us`;
-  const headers = {
-    'User-Agent': config.search.userAgent,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate',
-    'Connection': 'keep-alive',
-  };
-  return fetchGet(`https://www.bing.com${path}`, headers);
-}
-
-// ── Generic GET with gzip/deflate decompression ───────────────────────────
-function fetchGet(url, headers = {}) {
-  return new Promise((resolve, reject) => {
-    const lib = url.startsWith('https') ? https : http;
-    const req = lib.get(url, { headers }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume();
-        let next = res.headers.location;
-        if (next.startsWith('/')) {
-          const u = new URL(url);
-          next = `${u.protocol}//${u.hostname}${next}`;
-        }
-        fetchGet(next, headers).then(resolve).catch(reject);
-        return;
-      }
-      decompressResponse(res, (err, html) => {
-        if (err) return reject(err);
-        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} from ${url}`));
-        resolve(html);
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(config.search.timeout, () => { req.destroy(); reject(new Error(`Timeout: ${url}`)); });
-  });
-}
-
-// ── Gzip / deflate / plain decompression ─────────────────────────────────
 function decompressResponse(res, cb) {
   const encoding = (res.headers['content-encoding'] || '').toLowerCase();
   const chunks = [];

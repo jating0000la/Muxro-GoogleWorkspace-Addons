@@ -36,7 +36,7 @@ async function runResearch(query, onProgress) {
   };
 
   // ─── Stage 1: Google Search ──────────────────────────────────────
-  log('search', `Searching Google for: "${query}"`);
+  log('search', `Searching for: "${query}"`);
   let searchHtml;
   try {
     searchHtml = await fetchSearchPage(query);
@@ -62,7 +62,7 @@ async function runResearch(query, onProgress) {
   if (links.length === 0) {
     metadata.errors.push('No organic links extracted');
     return {
-      report: 'Research failed: No organic search results found. The query may be too specific or Google returned a CAPTCHA.',
+      report: 'Research failed: No organic search results found. The query may be too specific or the search engine returned an unexpected page.',
       sources: [],
       metadata,
     };

@@ -132,7 +132,7 @@
       </button>
     </div>
     <div class="tips" style="margin-top:6px;">
-      <strong>How it works:</strong> Searches Google → scrapes top 5 articles → extracts facts → compares sources → generates cited report. Takes 2-5 minutes.
+      <strong>How it works:</strong> Searches the web → scrapes top 5 articles → extracts facts → compares sources → generates cited report. Takes 2-5 minutes.
     </div>
   </div>
 
@@ -360,14 +360,25 @@
 
   function copyReport() {
     if (!currentReport) return;
-    // Copy to clipboard using textarea trick
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(currentReport).then(function() {
+        alert('Report copied to clipboard!');
+      }).catch(function() { fallbackCopy(currentReport); });
+    } else {
+      fallbackCopy(currentReport);
+    }
+  }
+
+  function fallbackCopy(text) {
     var ta = document.createElement('textarea');
-    ta.value = currentReport;
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    try { document.execCommand('copy'); alert('Report copied to clipboard!'); }
+    catch(e) { alert('Copy failed — please select and copy manually.'); }
     document.body.removeChild(ta);
-    alert('Report copied to clipboard!');
   }
 
   function resetUI() {

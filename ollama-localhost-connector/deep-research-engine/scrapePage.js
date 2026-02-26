@@ -7,6 +7,7 @@
 
 const http = require('http');
 const https = require('https');
+const zlib = require('zlib');
 const config = require('./config');
 
 /**
@@ -64,19 +65,24 @@ function scrapePage(url, redirectCount = 0) {
         return;
       }
 
-      let data = '';
       const maxSize = 2 * 1024 * 1024; // 2MB max
+      const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+      const chunks = [];
+      let totalLen = 0;
+      let resolved = false;
 
       res.on('data', (chunk) => {
-        data += chunk;
-        if (data.length > maxSize) {
+        chunks.push(chunk);
+        totalLen += chunk.length;
+        if (totalLen > maxSize && !resolved) {
+          resolved = true;
           req.destroy();
-          resolve({ html: data.substring(0, maxSize), finalUrl: url, status: 200 });
+          finishScrape(chunks, encoding, url, maxSize, resolve, reject);
         }
       });
 
       res.on('end', () => {
-        resolve({ html: data, finalUrl: url, status: 200 });
+        if (!resolved) finishScrape(chunks, encoding, url, maxSize, resolve, reject);
       });
     });
 
@@ -86,6 +92,22 @@ function scrapePage(url, redirectCount = 0) {
       reject(new Error(`Timeout scraping ${url}`));
     });
   });
+}
+
+function finishScrape(chunks, encoding, url, maxSize, resolve, reject) {
+  const buf = Buffer.concat(chunks);
+  const done = (err, result) => {
+    if (err) { reject(new Error(`Decompress error scraping ${url}: ${err.message}`)); return; }
+    let html = result ? result.toString('utf8') : buf.toString('utf8');
+    if (html.length > maxSize) html = html.substring(0, maxSize);
+    resolve({ html, finalUrl: url, status: 200 });
+  };
+  if (encoding === 'gzip') { zlib.gunzip(buf, done); }
+  else if (encoding === 'deflate') {
+    zlib.inflate(buf, (e, r) => { if (e) zlib.inflateRaw(buf, done); else done(null, r); });
+  }
+  else if (encoding === 'br') { zlib.brotliDecompress(buf, done); }
+  else { done(null, null); }
 }
 
 module.exports = { scrapePage };

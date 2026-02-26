@@ -4,7 +4,7 @@
  * Extracts organic search result URLs from search engine HTML.
  *
  * Engine detection order (matches search.js priority):
- *   1. DuckDuckGo  — uddg= parameter in redirect links (primary engine)
+ *   1. DuckDuckGo  — class="result__a" direct href (primary engine)
  *   2. Bing        — <h2><a href="..."> inside b_algo result items
  *   3. Google      — fallback patterns for jsname/ping/data-ved (rarely reached)
  */
