@@ -54,7 +54,7 @@ ${factsText}
 Return ONLY 5 bullet points. No introduction. No conclusion.`;
 
   try {
-    const response = await callOllama(prompt, { maxPredict: 300 });
+    const response = await callOllama(prompt, { maxPredict: 600 });
     return response;
   } catch (err) {
     console.error(`[Summarizer] Error for ${sourceLabel}: ${err.message}`);

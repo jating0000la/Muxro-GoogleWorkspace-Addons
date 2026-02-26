@@ -24,7 +24,7 @@ function stripThinking(text) {
  */
 function callOllama(prompt, opts = {}) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
+    const requestBody = {
       model: opts.model || config.ollama.model,
       prompt: prompt,
       stream: false,
@@ -32,7 +32,14 @@ function callOllama(prompt, opts = {}) {
         temperature: opts.temperature || config.ollama.temperature,
         num_predict: opts.maxPredict || config.ollama.maxPredict,
       },
-    });
+    };
+
+    // Disable thinking mode for qwen3 to save tokens on structured tasks
+    if (opts.think === false) {
+      requestBody.think = false;
+    }
+
+    const body = JSON.stringify(requestBody);
 
     const options = {
       hostname: config.ollama.host,
@@ -95,7 +102,9 @@ function extractJSON(text) {
     try {
       return JSON.parse(codeBlockMatch[1].trim());
     } catch (e) {
-      // Continue
+      // Try repair on code block content too
+      const repaired = repairTruncatedJSON(codeBlockMatch[1].trim());
+      if (repaired) return repaired;
     }
   }
 
@@ -121,7 +130,59 @@ function extractJSON(text) {
     }
   }
 
+  // Last resort: repair truncated JSON (model hit token limit mid-output)
+  const repaired = repairTruncatedJSON(text);
+  if (repaired) return repaired;
+
   return null;
+}
+
+/**
+ * Attempt to repair truncated JSON from a model that ran out of tokens.
+ * Strips trailing incomplete string/value, then closes all open brackets/braces.
+ * @param {string} text - Raw text containing partial JSON
+ * @returns {object|null} Parsed JSON or null
+ */
+function repairTruncatedJSON(text) {
+  if (!text) return null;
+
+  // Find the start of JSON
+  let start = text.indexOf('{');
+  if (start === -1) start = text.indexOf('[');
+  if (start === -1) return null;
+
+  let json = text.substring(start);
+
+  // Remove trailing incomplete string value (cut mid-sentence)
+  // Look for the last complete key-value or array element
+  json = json.replace(/,\s*"[^"]*$/, '');         // trailing: , "incomplete string
+  json = json.replace(/,\s*$/, '');                // trailing comma
+  json = json.replace(/:\s*"[^"]*$/, ': ""');      // trailing: "key": "incomplete
+  json = json.replace(/:\s*$/, ': null');           // trailing: "key":
+
+  // Close all unclosed brackets and braces
+  const opens = [];
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') opens.push('}');
+    else if (ch === '[') opens.push(']');
+    else if (ch === '}' || ch === ']') opens.pop();
+  }
+
+  // Close in reverse order
+  json += opens.reverse().join('');
+
+  try {
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
 }
 
 module.exports = { callOllama, extractJSON, stripThinking };

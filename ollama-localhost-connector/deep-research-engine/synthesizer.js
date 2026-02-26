@@ -47,7 +47,7 @@ Research findings:
 ${truncatedComparison}`;
 
   try {
-    const response = await callOllama(prompt, { maxPredict: 600 });
+    const response = await callOllama(prompt, { maxPredict: 1200 });
     return response;
   } catch (err) {
     console.error(`[Synthesizer] Error: ${err.message}`);

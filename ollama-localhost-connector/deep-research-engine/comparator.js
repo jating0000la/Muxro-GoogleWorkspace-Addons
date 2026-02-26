@@ -57,7 +57,7 @@ FINDINGS:
 ${truncated}`;
 
   try {
-    const response = await callOllama(prompt, { maxPredict: 500 });
+    const response = await callOllama(prompt, { maxPredict: 800 });
     return response;
   } catch (err) {
     console.error(`[Comparator] Error: ${err.message}`);
