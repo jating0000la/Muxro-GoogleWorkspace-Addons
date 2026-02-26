@@ -1,8 +1,14 @@
 /**
  * Deep Research Engine - Link Extractor
- * 
+ *
  * Extracts organic search result URLs from Google Search HTML.
- * Filters out ads, Google internal links, and non-article URLs.
+ * Covers multiple Google HTML patterns (classic, modern 2024-2026):
+ *   1. /url?q=  - classic redirect wrapper
+ *   2. jsname="UWckNb" - modern organic result anchor
+ *   3. ping="/url?...url=" - ping attribute (URL-encoded target)
+ *   4. data-ved on direct href - organic result with tracking param
+ *   5. data-href attributes
+ *   6. Broad fallback - any external https link in the HTML
  */
 
 const config = require('./config');
@@ -16,12 +22,13 @@ const BLOCKED_DOMAINS = [
   'amazon.com', 'ebay.com',
   'accounts.google', 'maps.google', 'play.google',
   'webcache.googleusercontent.com',
+  'translate.google', 'news.google',
 ];
 
 // File extensions to skip
 const BLOCKED_EXTENSIONS = [
   '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
-  '.zip', '.rar', '.mp4', '.mp3', '.jpg', '.png', '.gif',
+  '.zip', '.rar', '.mp4', '.mp3', '.jpg', '.png', '.gif', '.webp', '.svg',
 ];
 
 /**
@@ -34,27 +41,64 @@ function extractLinks(html) {
 
   const links = [];
   const seen = new Set();
-
-  // Pattern 1: Extract from <a href="/url?q=..." > (Google's redirect wrapper)
-  const redirectPattern = /href="\/url\?q=(https?:\/\/[^&"]+)/gi;
   let match;
-  while ((match = redirectPattern.exec(html)) !== null) {
-    const url = decodeURIComponent(match[1]);
-    addLink(url, links, seen);
+
+  // ── Pattern 1: Classic /url?q= redirect wrapper ──────────────────────
+  // e.g. href="/url?q=https://example.com/page&sa=U"
+  const p1 = /href="\/url\?q=(https?:\/\/[^&"]+)/gi;
+  while ((match = p1.exec(html)) !== null) {
+    addLink(decodeURIComponent(match[1]), links, seen);
   }
 
-  // Pattern 2: Direct <a href="https://..." in result divs
-  const directPattern = /class="[^"]*"[^>]*href="(https?:\/\/[^"]+)"/gi;
-  while ((match = directPattern.exec(html)) !== null) {
-    const url = decodeURIComponent(match[1]);
-    addLink(url, links, seen);
+  // ── Pattern 2: Modern jsname="UWckNb" organic result anchor ──────────
+  // e.g. <a jsname="UWckNb" href="https://example.com">
+  const p2a = /jsname="UWckNb"[^>]*href="(https?:\/\/[^"]+)"/gi;
+  while ((match = p2a.exec(html)) !== null) {
+    addLink(decodeURIComponent(match[1]), links, seen);
+  }
+  // href may appear before jsname
+  const p2b = /href="(https?:\/\/[^"]+)"[^>]*jsname="UWckNb"/gi;
+  while ((match = p2b.exec(html)) !== null) {
+    addLink(decodeURIComponent(match[1]), links, seen);
   }
 
-  // Pattern 3: data-href attributes
-  const dataHrefPattern = /data-href="(https?:\/\/[^"]+)"/gi;
-  while ((match = dataHrefPattern.exec(html)) !== null) {
-    const url = decodeURIComponent(match[1]);
-    addLink(url, links, seen);
+  // ── Pattern 3: ping attribute contains actual URL (URL-encoded) ───────
+  // e.g. ping="/url?sa=t&source=web&url=https%3A%2F%2Fexample.com"
+  const p3 = /ping="\/url\?[^"]*url=(https?[^"&]+)"/gi;
+  while ((match = p3.exec(html)) !== null) {
+    try {
+      addLink(decodeURIComponent(match[1]), links, seen);
+    } catch (e) {
+      addLink(match[1], links, seen);
+    }
+  }
+
+  // ── Pattern 4: <a href="https://..." data-ved="..."> ──────────────────
+  // data-ved is Google's tracking param present on all organic result links
+  const p4a = /href="(https?:\/\/[^"]{10,})"[^>]*data-ved/gi;
+  while ((match = p4a.exec(html)) !== null) {
+    addLink(decodeURIComponent(match[1]), links, seen);
+  }
+  const p4b = /data-ved="[^"]+"[^>]*href="(https?:\/\/[^"]{10,})"/gi;
+  while ((match = p4b.exec(html)) !== null) {
+    addLink(decodeURIComponent(match[1]), links, seen);
+  }
+
+  // ── Pattern 5: data-href attributes ──────────────────────────────────
+  const p5 = /data-href="(https?:\/\/[^"]+)"/gi;
+  while ((match = p5.exec(html)) !== null) {
+    addLink(decodeURIComponent(match[1]), links, seen);
+  }
+
+  // ── Pattern 6: Broad fallback — any <a href="https://..."> ───────────
+  // Only runs if we still need more links
+  if (links.length < config.search.maxLinks) {
+    // Skip google.*, javascript:, #anchors, relative paths
+    const p6 = /<a\s[^>]*href="(https:\/\/(?!(?:www\.)?(?:google\.|gstatic\.|googleapis\.|youtube\.|youtu\.be|facebook\.|twitter\.|x\.com|instagram\.|tiktok\.|pinterest\.|webcache\.))[^"]{15,})"/gi;
+    while ((match = p6.exec(html)) !== null) {
+      addLink(decodeURIComponent(match[1]), links, seen);
+      if (links.length >= config.search.maxLinks * 4) break; // cap scan
+    }
   }
 
   // Limit to max links

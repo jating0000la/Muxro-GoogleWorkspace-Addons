@@ -436,6 +436,40 @@ app.post('/api/slides/improve', async (req, res) => {
 });
 // ─── Deep Research Engine ────────────────────────────────────────────────
 const { runResearch } = require('./deep-research-engine');
+const { fetchSearchPage } = require('./deep-research-engine/search');
+const { extractLinks } = require('./deep-research-engine/extractLinks');
+
+// Deep Research: Debug — inspect search HTML and extracted links without full pipeline
+app.get('/api/research/debug', async (req, res) => {
+  const query = req.query.q;
+  if (!query) return res.status(400).json({ error: 'Missing query param: q' });
+
+  try {
+    const html = await fetchSearchPage(query);
+    if (!html) return res.json({ error: 'Empty HTML returned (redirect/CAPTCHA?)' });
+
+    const links = extractLinks(html);
+
+    // Return a small HTML snippet around each link pattern to help diagnose
+    const snippet = html.substring(0, 3000);
+    const hasJsname = html.includes('jsname="UWckNb"');
+    const hasRedirect = html.includes('/url?q=');
+    const hasPing = html.includes('ping="/url?');
+    const hasDataVed = html.includes('data-ved');
+    const hasCaptcha = html.includes('captcha') || html.includes('CAPTCHA') || html.includes('sorry/index');
+
+    res.json({
+      htmlLength: html.length,
+      hasCaptcha,
+      patterns: { hasJsname, hasRedirect, hasPing, hasDataVed },
+      linksExtracted: links.length,
+      links,
+      htmlSnippet: snippet,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Deep Research: Start research (blocking - waits for full completion)
 app.post('/api/research', async (req, res) => {

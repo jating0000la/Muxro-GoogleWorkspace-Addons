@@ -1,11 +1,12 @@
 /**
  * Deep Research Engine - Google Search Fetcher
- * 
+ *
  * Fetches raw HTML from Google Search results page.
- * Uses standard HTTPS with browser-like headers to avoid blocks.
+ * Uses browser-like headers and handles gzip decompression.
  */
 
 const https = require('https');
+const zlib = require('zlib');
 const config = require('./config');
 
 /**
@@ -16,18 +17,22 @@ const config = require('./config');
 function fetchSearchPage(query) {
   return new Promise((resolve, reject) => {
     const encodedQuery = encodeURIComponent(query);
-    const url = `https://www.google.com/search?q=${encodedQuery}&num=10&hl=en`;
 
     const options = {
       hostname: 'www.google.com',
-      path: `/search?q=${encodedQuery}&num=10&hl=en`,
+      path: `/search?q=${encodedQuery}&num=10&hl=en&gl=us`,
       method: 'GET',
       headers: {
         'User-Agent': config.search.userAgent,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'identity',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0',
       },
     };
 
@@ -42,9 +47,8 @@ function fetchSearchPage(query) {
         }
         // Re-fetch from redirect URL using https.get
         https.get(redirectUrl, { headers: options.headers }, (res2) => {
-          let data2 = '';
-          res2.on('data', (chunk) => { data2 += chunk; });
-          res2.on('end', () => {
+          decompressResponse(res2, (err, data2) => {
+            if (err) { reject(new Error(`Redirect decompress error: ${err.message}`)); return; }
             if (res2.statusCode === 200) resolve(data2);
             else reject(new Error(`Redirect target returned status ${res2.statusCode}`));
           });
@@ -52,13 +56,12 @@ function fetchSearchPage(query) {
         return;
       }
 
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
+      decompressResponse(res, (err, data) => {
+        if (err) { reject(new Error(`Decompress error: ${err.message}`)); return; }
         if (res.statusCode === 200) {
           resolve(data);
-        } else if (res.statusCode === 429) {
-          reject(new Error('CAPTCHA or rate limit detected. Try again later.'));
+        } else if (res.statusCode === 429 || res.statusCode === 503) {
+          reject(new Error('CAPTCHA or rate limit detected (HTTP ' + res.statusCode + '). Wait a few minutes and retry.'));
         } else {
           reject(new Error(`Google returned status ${res.statusCode}`));
         }
@@ -71,6 +74,37 @@ function fetchSearchPage(query) {
       reject(new Error('Search request timed out'));
     });
     req.end();
+  });
+}
+
+/**
+ * Decompress an HTTP response that may be gzip/deflate/br/plain
+ * @param {http.IncomingMessage} res
+ * @param {function} cb - (err, string)
+ */
+function decompressResponse(res, cb) {
+  const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+  const chunks = [];
+
+  res.on('data', (chunk) => chunks.push(chunk));
+  res.on('error', (e) => cb(e));
+  res.on('end', () => {
+    const buf = Buffer.concat(chunks);
+    if (encoding === 'gzip') {
+      zlib.gunzip(buf, (e, result) => cb(e, result ? result.toString('utf8') : null));
+    } else if (encoding === 'deflate') {
+      zlib.inflate(buf, (e, result) => {
+        if (e) {
+          zlib.inflateRaw(buf, (e2, r2) => cb(e2, r2 ? r2.toString('utf8') : null));
+        } else {
+          cb(null, result.toString('utf8'));
+        }
+      });
+    } else if (encoding === 'br') {
+      zlib.brotliDecompress(buf, (e, result) => cb(e, result ? result.toString('utf8') : null));
+    } else {
+      cb(null, buf.toString('utf8'));
+    }
   });
 }
 
