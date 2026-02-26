@@ -60,6 +60,8 @@ Modern browsers block web pages from making requests to `localhost` for security
 
 ```
 googleworkspace connector/
+├── start-all.bat                   # 1-click setup & run (Windows)
+├── start-all.sh                    # 1-click setup & run (macOS / Linux)
 ├── ollama-localhost-connector/     # Local proxy server (Node.js)
 │   ├── package.json
 │   └── server.js
@@ -81,7 +83,37 @@ googleworkspace connector/
 
 ---
 
-## Setup Guide
+## Quick Start (1-Click Setup)
+
+The easiest way to get everything running — installs Ollama (if needed), pulls the default model, installs dependencies, and starts the proxy server.
+
+### Windows
+
+Double-click **`start-all.bat`** or run in a terminal:
+
+```cmd
+start-all.bat
+```
+
+### macOS / Linux
+
+```bash
+chmod +x start-all.sh
+./start-all.sh
+```
+
+This will:
+1. Check/install **Node.js**
+2. Check/install **Ollama** (`curl -fsSL https://ollama.com/install.sh | sh`)
+3. Start the Ollama server
+4. Pull the default model (`gemma3:1b`)
+5. Install npm dependencies and start the proxy on port **9100**
+
+> **Tip:** You can install additional models anytime with `ollama pull <model-name>` — all installed models will appear in the addon's model dropdown.
+
+---
+
+## Manual Setup Guide
 
 ### Step 1: Install & Start Ollama
 

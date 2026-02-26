@@ -96,16 +96,8 @@ echo.
 echo [5/6] Pulling AI models (skip if already downloaded)...
 echo.
 
-echo    Pulling qwen3:0.6b ...
-ollama pull qwen3:0.6b
-echo.
-
-echo    Pulling gemma3:1b ...
+echo    Pulling gemma3:1b (default model)...
 ollama pull gemma3:1b
-echo.
-
-echo    Pulling deepseek-r1 ...
-ollama pull deepseek-r1
 echo.
 
 echo    Installed models:
@@ -139,13 +131,14 @@ echo ============================================================
 echo.
 echo   Ollama       : http://localhost:11434
 echo   Proxy Server : http://localhost:9100
-echo   Models       : qwen3:0.6b, gemma3:1b, deepseek-r1
+echo   Model        : gemma3:1b (+ any models you have installed)
 echo.
 echo   Next steps:
 echo     1. Copy the Google Apps Script files into your
 echo        Sheets / Docs / Slides script editor
 echo     2. Open the addon sidebar from the menu
-echo     3. Use AI features - they connect through the proxy
+echo     3. Select your preferred LLM model in the sidebar
+echo     4. Use AI features - they connect through the proxy
 echo.
 echo   Press Ctrl+C to stop the proxy server.
 echo ============================================================
