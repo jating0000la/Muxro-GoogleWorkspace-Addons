@@ -112,6 +112,146 @@ function insertAtCursor(text) {
   }
 }
 
+// ─── Insert Markdown Report as Formatted Doc ────────────────────────────────
+/**
+ * Parses markdown text and inserts properly formatted elements into the doc.
+ * Supports: headings (#-###), bold (**), italic (*), bullet/numbered lists,
+ * horizontal rules (---), and regular paragraphs.
+ */
+function insertMarkdownReport(markdown) {
+  const doc = DocumentApp.getActiveDocument();
+  const body = doc.getBody();
+
+  // Find insert position: after cursor, or end of doc
+  let insertIndex = body.getNumChildren();
+  const cursor = doc.getCursor();
+  if (cursor) {
+    const cursorEl = cursor.getElement();
+    let parent = cursorEl;
+    while (parent && parent.getParent() && parent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+      parent = parent.getParent();
+    }
+    if (parent && parent.getParent()) {
+      insertIndex = body.getChildIndex(parent) + 1;
+    }
+  }
+
+  const lines = markdown.split('\n');
+  let idx = insertIndex;
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+
+    // Skip empty lines (they act as spacing — we get natural spacing from paragraphs)
+    if (raw.trim() === '') continue;
+
+    // --- Horizontal rule ---
+    if (/^(\-{3,}|\*{3,}|_{3,})$/.test(raw.trim())) {
+      body.insertHorizontalRule(idx);
+      idx++;
+      continue;
+    }
+
+    // --- Headings ---
+    var headingMatch = raw.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      var level = headingMatch[1].length;
+      var headingText = headingMatch[2].trim();
+      var para = body.insertParagraph(idx, '');
+      var headingMap = {
+        1: DocumentApp.ParagraphHeading.HEADING1,
+        2: DocumentApp.ParagraphHeading.HEADING2,
+        3: DocumentApp.ParagraphHeading.HEADING3,
+        4: DocumentApp.ParagraphHeading.HEADING4,
+        5: DocumentApp.ParagraphHeading.HEADING5,
+        6: DocumentApp.ParagraphHeading.HEADING6,
+      };
+      para.setHeading(headingMap[level] || DocumentApp.ParagraphHeading.HEADING3);
+      applyInlineFormatting_(para, headingText);
+      idx++;
+      continue;
+    }
+
+    // --- Unordered list (-, *, +) ---
+    var ulMatch = raw.match(/^[\s]*[-*+]\s+(.+)/);
+    if (ulMatch) {
+      var item = body.insertListItem(idx, '');
+      item.setGlyphType(DocumentApp.GlyphType.BULLET);
+      applyInlineFormatting_(item, ulMatch[1]);
+      // Detect nesting (2+ spaces or tab)
+      var indent = raw.match(/^(\s*)/)[1].length;
+      if (indent >= 2) item.setNestingLevel(Math.min(Math.floor(indent / 2), 3));
+      idx++;
+      continue;
+    }
+
+    // --- Ordered list (1. 2. etc.) ---
+    var olMatch = raw.match(/^[\s]*\d+\.\s+(.+)/);
+    if (olMatch) {
+      var item = body.insertListItem(idx, '');
+      item.setGlyphType(DocumentApp.GlyphType.NUMBER);
+      applyInlineFormatting_(item, olMatch[1]);
+      var indent = raw.match(/^(\s*)/)[1].length;
+      if (indent >= 2) item.setNestingLevel(Math.min(Math.floor(indent / 2), 3));
+      idx++;
+      continue;
+    }
+
+    // --- Regular paragraph ---
+    var para = body.insertParagraph(idx, '');
+    para.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+    applyInlineFormatting_(para, raw);
+    idx++;
+  }
+}
+
+/**
+ * Apply inline bold/italic formatting to a paragraph or list item.
+ * Processes **bold**, *italic*, and ***bold-italic*** markers.
+ */
+function applyInlineFormatting_(element, text) {
+  // First pass: find all bold/italic segments and build a flat string + style map
+  var segments = [];
+  var regex = /(\*{1,3})((?:(?!\1).)+?)\1/g;
+  var lastIndex = 0;
+  var match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Text before this match
+    if (match.index > lastIndex) {
+      segments.push({ text: text.substring(lastIndex, match.index), bold: false, italic: false });
+    }
+    var stars = match[1].length;
+    segments.push({
+      text: match[2],
+      bold: stars >= 2,
+      italic: stars === 1 || stars === 3,
+    });
+    lastIndex = regex.lastIndex;
+  }
+  // Remaining text
+  if (lastIndex < text.length) {
+    segments.push({ text: text.substring(lastIndex), bold: false, italic: false });
+  }
+
+  // Build the full plain string
+  var fullText = segments.map(function(s) { return s.text; }).join('');
+  element.setText(fullText);
+
+  // Apply formatting ranges
+  var textEl = element.editAsText();
+  var offset = 0;
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i];
+    var end = offset + seg.text.length - 1;
+    if (end >= offset) {
+      if (seg.bold) textEl.setBold(offset, end, true);
+      if (seg.italic) textEl.setItalic(offset, end, true);
+    }
+    offset = end + 1;
+  }
+}
+
 // ─── Replace Selected Text ──────────────────────────────────────────────────
 function replaceSelectedText(newText) {
   const doc = DocumentApp.getActiveDocument();

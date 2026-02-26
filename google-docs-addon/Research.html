@@ -420,7 +420,7 @@
 
   function insertReport() {
     if (!currentReport) return;
-    google.script.run.insertAtCursor(currentReport);
+    google.script.run.insertMarkdownReport(currentReport);
   }
 
   function copyReport() {
