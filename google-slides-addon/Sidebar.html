@@ -104,6 +104,14 @@
     <span class="chip chip-chat">Chat</span>
   </div>
 
+  <!-- Global Model Selector -->
+  <div class="section" style="padding:8px 12px;background:#fff;">
+    <label>LLM Model</label>
+    <select id="modelSelect" style="font-size:12px;">
+      <option value="">Loading models...</option>
+    </select>
+  </div>
+
   <!-- Generate Tab -->
   <div id="tab-generate" class="tab-content">
     <div class="section">
@@ -128,11 +136,6 @@
         <option value="creative">Creative / Pitch</option>
         <option value="technical">Technical / Engineering</option>
         <option value="minimal">Minimal / Clean</option>
-      </select>
-      
-      <label>Model</label>
-      <select id="modelSelect">
-        <option value="">Loading...</option>
       </select>
       
       <div class="action-row">
@@ -249,6 +252,31 @@
     $el.text(text).addClass('visible ' + mapping.cls);
   }
 
+  // Normalize a bullet item that may be a string or an object like {text:"..."}.
+  function normalizeBullet(item) {
+    if (typeof item === 'string') return item;
+    if (item && typeof item === 'object') {
+      // Explicitly check typeof string to avoid returning nested objects
+      var candidates = [item.text, item.content, item.point, item.bullet,
+                        item.description, item.item, item.value, item.label];
+      for (var ci = 0; ci < candidates.length; ci++) {
+        if (typeof candidates[ci] === 'string' && candidates[ci]) return candidates[ci];
+      }
+      // Fall back to any string-valued property
+      var strVals = Object.values(item).filter(function(v){ return typeof v === 'string' && v; });
+      if (strVals.length) return strVals[0];
+      // Recurse one level if value is itself an object
+      var objVals = Object.values(item).filter(function(v){ return v && typeof v === 'object'; });
+      if (objVals.length) return normalizeBullet(objVals[0]);
+      return JSON.stringify(item);
+    }
+    return String(item);
+  }
+
+  function normalizeBullets(arr) {
+    return (arr || []).map(normalizeBullet);
+  }
+
   function detectImproveColor(instruction) {
     var i = (instruction || '').toLowerCase();
     if (i.indexOf('engaging') >= 0 || i.indexOf('impactful') >= 0) return 'enhance';
@@ -297,12 +325,21 @@
     $('#statusText').text(msg);
   }
 
+  function formatSize(bytes) {
+    if (!bytes) return '';
+    var gb = bytes / (1024*1024*1024);
+    return gb >= 1 ? gb.toFixed(1) + ' GB' : (bytes / (1024*1024)).toFixed(0) + ' MB';
+  }
+
   function loadModels(models) {
     var sel = $('#modelSelect').empty();
     if (models && models.length) {
-      models.forEach(function(m) { sel.append($('<option>').val(m.name).text(m.name)); });
+      models.forEach(function(m) {
+        var label = m.name + (m.size ? ' (' + formatSize(m.size) + ')' : '');
+        sel.append($('<option>').val(m.name).text(label));
+      });
     } else {
-      sel.append($('<option>').text('No models'));
+      sel.append($('<option>').val('').text('No models available'));
     }
   }
 
@@ -345,7 +382,7 @@
           if (merged.length > 0) {
             generatedSlides = merged;
             var preview = generatedSlides.map(function(s, i) {
-              return 'Slide ' + (i+1) + ': ' + s.title + '\n  ' + (s.bullets||[]).join('\n  ');
+              return 'Slide ' + (i+1) + ': ' + s.title + '\n  ' + normalizeBullets(s.bullets).join('\n  ');
             }).join('\n\n');
             setColoredResponse('genResponse', preview, 'generate');
             $('#genActions').show();
@@ -367,10 +404,15 @@
 
   function createSlides() {
     if (!generatedSlides) return;
-    google.script.run.withSuccessHandler(function(count) {
-      $('#genActions').hide();
-      setColoredResponse('genResponse', '✅ Created ' + count + ' slides! Check your presentation.', 'success');
-    }).createSlidesFromData(generatedSlides);
+    google.script.run
+      .withSuccessHandler(function(count) {
+        $('#genActions').hide();
+        setColoredResponse('genResponse', '✅ Created ' + count + ' slides! Check your presentation.', 'success');
+      })
+      .withFailureHandler(function(err) {
+        setColoredResponse('genResponse', 'Error creating slides: ' + (err.message || err), 'error');
+      })
+      .createSlidesFromData(generatedSlides);
   }
 
   // ─── Improve Slide ─────────────────────────────────────────────────
@@ -382,7 +424,8 @@
     $('#improveResponse').removeClass('visible');
     $('#improveActions').hide();
 
-    google.script.run.withSuccessHandler(function(slideInfo) {
+    google.script.run
+      .withSuccessHandler(function(slideInfo) {
       if (slideInfo.error) {
         $('#improveLoading').removeClass('visible');
         alert('Please select a slide first.');
@@ -405,7 +448,8 @@
           var match = text.match(/\{[\s\S]*\}/);
           if (match) {
             improvedData = JSON.parse(sanitizeJSON(match[0]));
-            var preview = 'Title: ' + improvedData.title + '\n\n' + (improvedData.bullets||[]).join('\n') + (improvedData.notes ? '\n\nNotes: ' + improvedData.notes : '');
+            improvedData.bullets = normalizeBullets(improvedData.bullets);
+            var preview = 'Title: ' + improvedData.title + '\n\n' + improvedData.bullets.join('\n') + (improvedData.notes ? '\n\nNotes: ' + improvedData.notes : '');
             setColoredResponse('improveResponse', preview, lastImproveColor);
             $('#improveActions').show();
           } else {
@@ -419,17 +463,27 @@
       }).always(function() {
         $('#improveLoading').removeClass('visible');
       });
-    }).getCurrentSlideInfo();
+    })
+      .withFailureHandler(function(err) {
+        $('#improveLoading').removeClass('visible');
+        setColoredResponse('improveResponse', 'Error reading slide: ' + (err.message || err), 'error');
+      })
+      .getCurrentSlideInfo();
   }
 
   function applyImprovement() {
     if (!improvedData) return;
-    google.script.run.withSuccessHandler(function() {
-      $('#improveActions').hide();
-      setColoredResponse('improveResponse', $('#improveResponse').text() + '\n\n✅ Applied!', 'success');
-    }).updateCurrentSlideContent(
+    google.script.run
+      .withSuccessHandler(function() {
+        $('#improveActions').hide();
+        setColoredResponse('improveResponse', $('#improveResponse').text() + '\n\n✅ Applied!', 'success');
+      })
+      .withFailureHandler(function(err) {
+        setColoredResponse('improveResponse', 'Error applying changes: ' + (err.message || err), 'error');
+      })
+      .updateCurrentSlideContent(
       improvedData.title,
-      (improvedData.bullets||[]).join('\n'),
+      normalizeBullets(improvedData.bullets).join('\n'),
       improvedData.notes
     );
   }
@@ -439,7 +493,8 @@
     $('#improveLoading').addClass('visible');
     $('#improveResponse').removeClass('visible');
 
-    google.script.run.withSuccessHandler(function(slideInfo) {
+    google.script.run
+      .withSuccessHandler(function(slideInfo) {
       if (slideInfo.error) {
         $('#improveLoading').removeClass('visible');
         alert('Select a slide first.');
@@ -458,15 +513,25 @@
         timeout: 60000
       }).done(function(resp) {
         var notes = resp.response || '';
-        google.script.run.withSuccessHandler(function() {
-          setColoredResponse('improveResponse', '✅ Speaker notes added:\n\n' + notes, 'notes');
-        }).addSpeakerNotesToSlide(slideInfo.index - 1, notes);
+        google.script.run
+          .withSuccessHandler(function() {
+            setColoredResponse('improveResponse', '✅ Speaker notes added:\n\n' + notes, 'notes');
+          })
+          .withFailureHandler(function(err) {
+            setColoredResponse('improveResponse', 'Error saving notes: ' + (err.message || err), 'error');
+          })
+          .addSpeakerNotesToSlide(slideInfo.index - 1, notes);
       }).fail(function() {
         setColoredResponse('improveResponse', 'Error: Cannot connect.', 'error');
       }).always(function() {
         $('#improveLoading').removeClass('visible');
       });
-    }).getCurrentSlideInfo();
+    })
+      .withFailureHandler(function(err) {
+        $('#improveLoading').removeClass('visible');
+        setColoredResponse('improveResponse', 'Error reading slide: ' + (err.message || err), 'error');
+      })
+      .getCurrentSlideInfo();
   }
 
   // ─── Batch Notes ──────────────────────────────────────────────────
@@ -476,41 +541,47 @@
     $('#improveLoading').addClass('visible');
     setColoredResponse('improveResponse', 'Generating notes for all slides...', 'batch');
 
-    google.script.run.withSuccessHandler(function(presInfo) {
-      var completed = 0;
-      var total = presInfo.slides.length;
+    google.script.run
+      .withSuccessHandler(function(presInfo) {
+        var total = presInfo.slides.length;
 
-      function processNext(i) {
-        if (i >= total) {
-          $('#improveLoading').removeClass('visible');
-          setColoredResponse('improveResponse', '✅ Added speaker notes to all ' + total + ' slides!', 'success');
-          return;
+        function processNext(i) {
+          if (i >= total) {
+            $('#improveLoading').removeClass('visible');
+            setColoredResponse('improveResponse', '✅ Added speaker notes to all ' + total + ' slides!', 'success');
+            return;
+          }
+
+          var slide = presInfo.slides[i];
+          setColoredResponse('improveResponse', 'Processing slide ' + (i+1) + ' of ' + total + '...', 'batch');
+
+          $.ajax({
+            url: PROXY + '/api/generate',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+              prompt: 'Generate speaker notes for slide ' + (i+1) + ':\nTitle: ' + slide.title + '\nContent: ' + slide.content + '\n\nWrite 2-4 sentences. Plain text.',
+              model: $('#modelSelect').val() || undefined,
+              system: 'Write natural speaker notes. Plain text only.'
+            }),
+            timeout: 60000
+          }).done(function(resp) {
+            google.script.run
+              .withSuccessHandler(function() { processNext(i + 1); })
+              .withFailureHandler(function() { processNext(i + 1); })
+              .addSpeakerNotesToSlide(i, resp.response || '');
+          }).fail(function() {
+            processNext(i + 1); // Skip failed slides
+          });
         }
 
-        var slide = presInfo.slides[i];
-        setColoredResponse('improveResponse', 'Processing slide ' + (i+1) + ' of ' + total + '...', 'batch');
-
-        $.ajax({
-          url: PROXY + '/api/generate',
-          method: 'POST',
-          contentType: 'application/json',
-          data: JSON.stringify({
-            prompt: 'Generate speaker notes for slide ' + (i+1) + ':\nTitle: ' + slide.title + '\nContent: ' + slide.content + '\n\nWrite 2-4 sentences. Plain text.',
-            model: $('#modelSelect').val() || undefined,
-            system: 'Write natural speaker notes. Plain text only.'
-          }),
-          timeout: 60000
-        }).done(function(resp) {
-          google.script.run.withSuccessHandler(function() {
-            processNext(i + 1);
-          }).addSpeakerNotesToSlide(i, resp.response || '');
-        }).fail(function() {
-          processNext(i + 1); // Skip failed slides
-        });
-      }
-
-      processNext(0);
-    }).getPresentationInfo();
+        processNext(0);
+      })
+      .withFailureHandler(function(err) {
+        $('#improveLoading').removeClass('visible');
+        setColoredResponse('improveResponse', 'Error loading presentation: ' + (err.message || err), 'error');
+      })
+      .getPresentationInfo();
   }
 
   // ─── Chat ─────────────────────────────────────────────────────────
@@ -522,31 +593,44 @@
     $('#chatResponse').removeClass('visible');
     $('#btnChat').prop('disabled', true);
 
-    google.script.run.withSuccessHandler(function(presInfo) {
-      var context = 'Presentation: ' + presInfo.title + '\nSlides: ' + presInfo.slideCount + '\n';
-      presInfo.slides.forEach(function(s) {
-        context += '\nSlide ' + s.index + ': ' + s.title + '\n' + s.content + '\n';
-      });
-
+    function doAjax(context) {
       $.ajax({
         url: PROXY + '/api/generate',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
-          prompt: context + '\nUser question: ' + msg,
+          prompt: (context ? context + '\nUser question: ' : '') + msg,
           model: $('#modelSelect').val() || undefined,
           system: 'You are a presentation design expert. Provide helpful advice about improving presentations.'
         }),
         timeout: 300000
       }).done(function(resp) {
-        setColoredResponse('chatResponse', resp.response || '', 'chat');
-      }).fail(function() {
-        setColoredResponse('chatResponse', 'Error: Cannot connect.', 'error');
+        setColoredResponse('chatResponse', resp.response || 'No response received.', 'chat');
+      }).fail(function(xhr, status) {
+        setColoredResponse('chatResponse', 'Error: Cannot connect to Ollama connector. Make sure it is running on port 9100.', 'error');
       }).always(function() {
         $('#chatLoading').removeClass('visible');
         $('#btnChat').prop('disabled', false);
       });
-    }).getPresentationInfo();
+    }
+
+    // Try to include presentation context; if it fails, chat still works without it
+    google.script.run
+      .withSuccessHandler(function(presInfo) {
+        var context = '';
+        try {
+          context = 'Presentation: ' + presInfo.title + '\nSlides: ' + presInfo.slideCount + '\n';
+          presInfo.slides.forEach(function(s) {
+            context += '\nSlide ' + s.index + ': ' + s.title + '\n' + s.content + '\n';
+          });
+        } catch(e) { context = ''; }
+        doAjax(context);
+      })
+      .withFailureHandler(function(err) {
+        // Proceed without context if server call fails
+        doAjax('');
+      })
+      .getPresentationInfo();
   }
 
   $('#chatInput').on('keydown', function(e) {

@@ -127,6 +127,14 @@
     <span class="legend-item"><span class="legend-dot" style="background:#9334e6;"></span>Generate</span>
   </div>
 
+  <!-- Global Model Selector -->
+  <div class="section" style="padding:8px 12px;background:#fff;">
+    <label>LLM Model</label>
+    <select id="modelSelect" style="font-size:12px;">
+      <option value="">Loading models...</option>
+    </select>
+  </div>
+
   <!-- Edit Text Tab -->
   <div id="tab-edit" class="tab-content">
     <div class="section">
@@ -228,12 +236,7 @@
   <!-- Chat Tab -->
   <div id="tab-chat" class="tab-content" style="display:none;">
     <div class="section">
-      <label>Model</label>
-      <select id="modelSelect">
-        <option value="">Loading...</option>
-      </select>
-      
-      <label style="margin-top:8px;">Ask about your document</label>
+      <label>Ask about your document</label>
       <textarea id="chatInput" placeholder="e.g., What's the main theme? Suggest a better title? How can I improve the introduction?"></textarea>
       
       <div class="action-row">
@@ -317,9 +320,12 @@
   function loadModels(models) {
     let sel = $('#modelSelect').empty();
     if (models && models.length) {
-      models.forEach(m => sel.append($('<option>').val(m.name).text(m.name)));
+      models.forEach(function(m) {
+        var label = m.name + (m.size ? ' (' + formatSize(m.size) + ')' : '');
+        sel.append($('<option>').val(m.name).text(label));
+      });
     } else {
-      sel.append($('<option>').text('No models available'));
+      sel.append($('<option>').val('').text('No models available'));
     }
   }
 

@@ -22,6 +22,11 @@
 <body>
   <h3 style="margin:0 0 8px 0;">🧮 AI Formula Generator</h3>
 
+  <label>LLM Model</label>
+  <select id="modelSelect" style="width:100%;padding:8px 10px;border:1px solid #dadce0;border-radius:6px;font-size:13px;">
+    <option value="">Loading models...</option>
+  </select>
+
   <label>Describe the formula you need</label>
   <textarea id="desc" placeholder="e.g., Sum all values in column B where the date in column C is in January 2024"></textarea>
 
@@ -43,6 +48,22 @@
 <script>
   var formula = '';
 
+  // Load models from connector
+  $.ajax({ url: 'http://localhost:9100/api/status', method: 'GET', timeout: 5000 })
+    .done(function(resp) {
+      if (resp.status === 'connected' && resp.models && resp.models.length) {
+        var sel = $('#modelSelect').empty();
+        resp.models.forEach(function(m) {
+          var size = m.size ? (m.size > 1073741824 ? (m.size/1073741824).toFixed(1)+' GB' : (m.size/1048576).toFixed(0)+' MB') : '';
+          sel.append($('<option>').val(m.name).text(m.name + (size ? ' (' + size + ')' : '')));
+        });
+      } else {
+        $('#modelSelect').empty().append($('<option>').val('').text('No models available'));
+      }
+    }).fail(function() {
+      $('#modelSelect').empty().append($('<option>').val('').text('Connector not running'));
+    });
+
   function generate() {
     var desc = $('#desc').val().trim();
     if (!desc) return;
@@ -51,21 +72,33 @@
     $('#result').hide();
     $('#insertBtn').hide();
 
+    var payload = {
+      description: desc,
+      context: $('#context').val(),
+      model: $('#modelSelect').val() || undefined
+    };
+
     $.ajax({
       url: 'http://localhost:9100/api/sheets/formula',
       method: 'POST',
       contentType: 'application/json',
-      data: JSON.stringify({
-        description: desc,
-        context: $('#context').val()
-      }),
-      timeout: 60000
+      data: JSON.stringify(payload),
+      timeout: 120000
     }).done(function(resp) {
-      formula = (resp.response || '').trim();
+      var raw = (resp.response || resp || '').toString().trim();
+      if (!raw) {
+        $('#result').text('No formula returned. Try rephrasing your description.').show();
+        return;
+      }
+      formula = raw;
       $('#result').text(formula).show();
       $('#insertBtn').show();
-    }).fail(function() {
-      $('#result').text('Error: Cannot connect. Is the Muxro AI Connector running?').show();
+    }).fail(function(xhr, status, err) {
+      var msg = 'Error: Cannot connect to Muxro AI Connector.';
+      if (xhr.responseJSON && xhr.responseJSON.error) msg += '\n' + xhr.responseJSON.error;
+      else if (err) msg += '\n' + err;
+      msg += '\n\nMake sure the connector is running on port 9100.';
+      $('#result').text(msg).show();
     }).always(function() {
       $('#loading').hide();
     });
@@ -73,9 +106,14 @@
 
   function insertIt() {
     if (!formula) return;
-    google.script.run.withSuccessHandler(function() {
-      google.script.host.close();
-    }).writeToCell(formula, null, null);
+    google.script.run
+      .withSuccessHandler(function() {
+        google.script.host.close();
+      })
+      .withFailureHandler(function(err) {
+        alert('Error inserting formula: ' + (err.message || err));
+      })
+      .writeToCell(formula, null, null);
   }
 </script>
 </body>

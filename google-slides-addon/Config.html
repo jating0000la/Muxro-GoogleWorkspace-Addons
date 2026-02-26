@@ -26,8 +26,8 @@
   <div class="help">URL of the Muxro AI Connector proxy</div>
 
   <label>Default Model</label>
-  <input type="text" id="model" placeholder="llama3.2" />
-  <div class="help">Ollama model name (e.g., llama3.2, mistral, codellama)</div>
+  <input type="text" id="model" placeholder="gemma3:1b" />
+  <div class="help">Ollama model name (e.g., gemma3:1b)</div>
 
   <button class="btn btn-primary" onclick="save()">Save Settings</button>
   <button class="btn" style="background:#f1f3f4;color:#3c4043;margin-left:8px;" onclick="testConnection()">Test Connection</button>
@@ -38,7 +38,7 @@
   google.script.run.withSuccessHandler(function(settings) {
     if (settings) {
       $('#connectorUrl').val(settings.connectorUrl || 'http://localhost:9100');
-      $('#model').val(settings.model || 'llama3.2');
+      $('#model').val(settings.model || 'gemma3:1b');
     }
   }).loadSettings();
 

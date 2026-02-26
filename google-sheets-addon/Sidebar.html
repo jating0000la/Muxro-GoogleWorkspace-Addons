@@ -114,14 +114,17 @@
     <span class="legend-item"><span class="legend-dot" style="background:#e64a19;"></span>Trends</span>
   </div>
 
+  <!-- Global Model Selector -->
+  <div class="section" style="padding:8px 12px;background:#fff;">
+    <label>LLM Model</label>
+    <select id="modelSelect" class="model-select" style="font-size:12px;">
+      <option value="">Loading models...</option>
+    </select>
+  </div>
+
   <!-- Chat Tab -->
   <div id="tab-chat" class="tab-content">
     <div class="section">
-      <label>Model</label>
-      <select id="modelSelect" class="model-select">
-        <option value="">Loading models...</option>
-      </select>
-      
       <label>Ask anything about your data</label>
       <textarea id="chatInput" placeholder="e.g., Explain what this data shows, suggest a chart type, help me write a formula..."></textarea>
       
@@ -156,6 +159,9 @@
         <button class="btn btn-secondary" onclick="quickAction('clean and validate this data, report issues')">🧹 Validate</button>
         <button class="btn btn-secondary" onclick="quickAction('suggest best chart types for this data')">📉 Chart Tips</button>
       </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="translateSelection()">🌐 Translate</button>
+      </div>
       
       <div class="loading" id="analyzeLoading">
         <div class="spinner"></div>
@@ -165,6 +171,15 @@
       <div class="response-area" id="analyzeResponse"></div>
     </div>
     
+    <div class="section">
+      <div class="section-title">Translate Selection</div>
+      <label>Target Language</label>
+      <input type="text" id="translateLang" placeholder="e.g., Spanish, French, Hindi, Japanese..." />
+      <div class="action-row">
+        <button class="btn btn-success" onclick="translateSelection()">🌐 Translate Selected Cells</button>
+      </div>
+    </div>
+
     <div class="section">
       <div class="section-title">Custom Analysis</div>
       <textarea id="customAnalysis" placeholder="Describe what you want to analyze..."></textarea>
@@ -295,13 +310,14 @@
   function loadModels(models) {
     let sel = $('#modelSelect');
     sel.empty();
-    if (models && models.length > 0) {
+    if (models && models.length) {
       models.forEach(function(m) {
-        sel.append($('<option>').val(m.name).text(m.name + ' (' + formatSize(m.size) + ')'));
+        var label = m.name + (m.size ? ' (' + formatSize(m.size) + ')' : '');
+        sel.append($('<option>').val(m.name).text(label));
       });
       currentModel = models[0].name;
     } else {
-      sel.append($('<option>').val('').text('No models found - run: ollama pull llama3.2'));
+      sel.append($('<option>').val('').text('No models available'));
     }
   }
 
@@ -321,31 +337,54 @@
     $('#btnChat').prop('disabled', true);
 
     // Get selected data context
-    google.script.run.withSuccessHandler(function(selData) {
-      let prompt = msg;
-      if (selData && !selData.error && selData.data) {
-        prompt = 'Selected spreadsheet data:\n' + JSON.stringify(selData.data) + '\n\nUser question: ' + msg;
-      }
+    google.script.run
+      .withSuccessHandler(function(selData) {
+        let prompt = msg;
+        if (selData && !selData.error && selData.data) {
+          prompt = 'Selected spreadsheet data:\n' + JSON.stringify(selData.data) + '\n\nUser question: ' + msg;
+        }
 
-      $.ajax({
-        url: PROXY + '/api/generate',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({
-          prompt: prompt,
-          model: $('#modelSelect').val() || undefined,
-          system: 'You are a Google Sheets expert assistant. Help users with spreadsheet tasks, formulas, data analysis, and formatting.'
-        }),
-        timeout: 300000
-      }).done(function(resp) {
-        setColoredResponse('chatResponse', resp.response || JSON.stringify(resp), 'chat');
-      }).fail(function(xhr) {
-        setColoredResponse('chatResponse', 'Error: Cannot connect to Ollama. Make sure the connector is running.', 'error');
-      }).always(function() {
-        $('#chatLoading').removeClass('visible');
-        $('#btnChat').prop('disabled', false);
-      });
-    }).getSelectedData();
+        $.ajax({
+          url: PROXY + '/api/generate',
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            prompt: prompt,
+            model: $('#modelSelect').val() || undefined,
+            system: 'You are a Google Sheets expert assistant. Help users with spreadsheet tasks, formulas, data analysis, and formatting.'
+          }),
+          timeout: 300000
+        }).done(function(resp) {
+          setColoredResponse('chatResponse', resp.response || JSON.stringify(resp), 'chat');
+        }).fail(function(xhr) {
+          setColoredResponse('chatResponse', 'Error: Cannot connect to Ollama. Make sure the connector is running.', 'error');
+        }).always(function() {
+          $('#chatLoading').removeClass('visible');
+          $('#btnChat').prop('disabled', false);
+        });
+      })
+      .withFailureHandler(function(err) {
+        // Chat without context if getSelectedData fails
+        $.ajax({
+          url: PROXY + '/api/generate',
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            prompt: msg,
+            model: $('#modelSelect').val() || undefined,
+            system: 'You are a Google Sheets expert assistant.'
+          }),
+          timeout: 300000
+        }).done(function(resp) {
+          setColoredResponse('chatResponse', resp.response || JSON.stringify(resp), 'chat');
+        }).fail(function() {
+          setColoredResponse('chatResponse', 'Error: Cannot connect.', 'error');
+        }).always(function() {
+          $('#chatLoading').removeClass('visible');
+          $('#btnChat').prop('disabled', false);
+        });
+      })
+      .getSelectedData();
   }
 
   // ─── Quick Analysis ────────────────────────────────────────────────
@@ -355,19 +394,31 @@
     $('#analyzeLoading').addClass('visible');
     $('#analyzeResponse').removeClass('visible');
 
-    google.script.run.withSuccessHandler(function(selData) {
-      let dataStr = '';
-      if (selData && !selData.error && selData.data) {
-        dataStr = JSON.stringify(selData.data);
-      } else {
-        // Fall back to all sheet data
-        google.script.run.withSuccessHandler(function(allData) {
-          doAnalysis(JSON.stringify(allData.data), instruction);
-        }).getAllSheetData();
-        return;
-      }
-      doAnalysis(dataStr, instruction);
-    }).getSelectedData();
+    google.script.run
+      .withSuccessHandler(function(selData) {
+        let dataStr = '';
+        if (selData && !selData.error && selData.data) {
+          dataStr = JSON.stringify(selData.data);
+        } else {
+          // Fall back to all sheet data
+          google.script.run
+            .withSuccessHandler(function(allData) {
+              doAnalysis(JSON.stringify(allData.data), instruction);
+            })
+            .withFailureHandler(function(err) {
+              $('#analyzeLoading').removeClass('visible');
+              setColoredResponse('analyzeResponse', 'Error reading sheet: ' + (err.message || err), 'error');
+            })
+            .getAllSheetData();
+          return;
+        }
+        doAnalysis(dataStr, instruction);
+      })
+      .withFailureHandler(function(err) {
+        $('#analyzeLoading').removeClass('visible');
+        setColoredResponse('analyzeResponse', 'Error reading selection: ' + (err.message || err), 'error');
+      })
+      .getSelectedData();
   }
 
   var _currentAnalysisInstruction = '';
@@ -426,10 +477,15 @@
 
   function insertFormula() {
     if (!lastFormula) return;
-    google.script.run.withSuccessHandler(function() {
-      $('#formulaActions').hide();
-      setColoredResponse('formulaResponse', lastFormula + '\n\n✅ Inserted into active cell!', 'success');
-    }).writeToCell(lastFormula, null, null);
+    google.script.run
+      .withSuccessHandler(function() {
+        $('#formulaActions').hide();
+        setColoredResponse('formulaResponse', lastFormula + '\n\n✅ Inserted into active cell!', 'formula');
+      })
+      .withFailureHandler(function(err) {
+        setColoredResponse('formulaResponse', 'Error inserting formula: ' + (err.message || err), 'error');
+      })
+      .writeToCell(lastFormula, null, null);
   }
 
   function setFormula(desc) {
@@ -444,6 +500,81 @@
       sendChat();
     }
   });
+
+  // ─── Translate Selection ────────────────────────────────────────────
+  function translateSelection() {
+    var lang = ($('#translateLang').val() || '').trim();
+    if (!lang) {
+      alert('Please enter a target language (e.g., Spanish, French, Hindi).');
+      return;
+    }
+
+    $('#analyzeLoading').addClass('visible');
+    $('#analyzeResponse').removeClass('visible');
+
+    google.script.run
+      .withSuccessHandler(function(selData) {
+        if (!selData || selData.error || !selData.data || selData.data.length === 0) {
+          $('#analyzeLoading').removeClass('visible');
+          setColoredResponse('analyzeResponse', 'Please select cells with text to translate first.', 'error');
+          return;
+        }
+
+        $.ajax({
+          url: PROXY + '/api/generate',
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            prompt: 'Translate each cell value to ' + lang + '. Input data (JSON 2D array): ' + JSON.stringify(selData.data) + '\n\nRespond with ONLY a JSON 2D array of translated strings. Same structure, same number of rows and columns. Example: [["translated1","translated2"],["translated3","translated4"]]. JSON array only, no explanations.',
+            model: 'translategemma:4b',
+          }),
+          timeout: 120000
+        }).done(function(resp) {
+          try {
+            var text = (resp.response || '').trim();
+            // Try to extract JSON 2D array
+            var match = text.match(/\[\s*\[[\s\S]*\]\s*\]/);
+            if (match) {
+              var translated = JSON.parse(match[0]);
+              var flat = translated.map(function(row) {
+                if (Array.isArray(row)) return row.join(', ');
+                return String(row);
+              });
+              google.script.run
+                .withSuccessHandler(function() {
+                  setColoredResponse('analyzeResponse', '✅ Translation to ' + lang + ' complete! Check the column next to your selection.\n\n' + flat.join('\n'), 'translate');
+                })
+                .withFailureHandler(function(err) {
+                  setColoredResponse('analyzeResponse', 'Error writing translated data: ' + (err.message || err), 'error');
+                })
+                .insertResultNextToSelection(flat);
+            } else {
+              // Fallback: split by lines
+              var lines = text.split('\n').filter(function(l) { return l.trim(); });
+              google.script.run
+                .withSuccessHandler(function() {
+                  setColoredResponse('analyzeResponse', '✅ Translation to ' + lang + ' inserted!\n\n' + lines.join('\n'), 'translate');
+                })
+                .withFailureHandler(function(err) {
+                  setColoredResponse('analyzeResponse', 'Error writing: ' + (err.message || err), 'error');
+                })
+                .insertResultNextToSelection(lines);
+            }
+          } catch(e) {
+            setColoredResponse('analyzeResponse', 'Parse error: ' + e.message + '\n\nRaw response:\n' + (resp.response || ''), 'error');
+          }
+        }).fail(function() {
+          setColoredResponse('analyzeResponse', 'Error: Cannot connect to Ollama connector.', 'error');
+        }).always(function() {
+          $('#analyzeLoading').removeClass('visible');
+        });
+      })
+      .withFailureHandler(function(err) {
+        $('#analyzeLoading').removeClass('visible');
+        setColoredResponse('analyzeResponse', 'Error reading selection: ' + (err.message || err), 'error');
+      })
+      .getSelectedData();
+  }
 
   // Initialize
   checkConnection();

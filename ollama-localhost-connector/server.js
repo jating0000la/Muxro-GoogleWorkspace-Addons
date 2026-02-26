@@ -25,7 +25,7 @@ const CONFIG = {
   proxyPort: parseInt(process.env.PROXY_PORT) || 9100,
   ollamaHost: process.env.OLLAMA_HOST || 'localhost',
   ollamaPort: parseInt(process.env.OLLAMA_PORT) || 11434,
-  defaultModel: process.env.OLLAMA_MODEL || 'qwen3:0.6b',
+  defaultModel: process.env.OLLAMA_MODEL || 'gemma3:1b',
   verbose: process.argv.includes('--verbose'),
   maxTokens: parseInt(process.env.MAX_TOKENS) || 4096,
 };
@@ -51,6 +51,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Utility: Strip <think>...</think> blocks from thinking models ────────────
+function stripThinking(text) {
+  if (typeof text !== 'string') return text;
+  // Remove one or more <think>...</think> blocks (deepseek-r1, qwen3, etc.)
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
 // ─── Utility: Forward request to Ollama ──────────────────────────────────────
 function forwardToOllama(path, body) {
   return new Promise((resolve, reject) => {
@@ -72,7 +79,14 @@ function forwardToOllama(path, body) {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          const parsed = JSON.parse(data);
+          // Strip thinking tags from generate responses (deepseek-r1, qwen3)
+          if (parsed.response) parsed.response = stripThinking(parsed.response);
+          // Strip thinking tags from chat responses
+          if (parsed.message && parsed.message.content) {
+            parsed.message.content = stripThinking(parsed.message.content);
+          }
+          resolve(parsed);
         } catch (e) {
           resolve(data);
         }
@@ -244,16 +258,36 @@ app.post('/api/sheets/formula', async (req, res) => {
     }
 
     let prompt = `Generate a Google Sheets formula for the following requirement:\n${description}`;
-    if (context) prompt += `\n\nContext about the spreadsheet:\n${context}`;
-    prompt += '\n\nRespond with ONLY the formula, no explanation. Start with =';
+    if (context) prompt += `\n\nSpreadsheet column layout:\n${context}`;
+    prompt += '\n\nIMPORTANT: Respond with ONLY the formula starting with =. No explanation, no markdown, no code blocks, just the raw formula.';
 
     const result = await forwardToOllama('/api/generate', {
       model: model || CONFIG.defaultModel,
       prompt,
       stream: false,
-      system: 'You are a Google Sheets formula expert. Respond ONLY with the formula. No explanations.',
+      system: 'You are a Google Sheets formula expert. Output ONLY the raw formula starting with =. Never use markdown, code blocks, or explanations. Just the formula.',
       options: { num_predict: 500 },
     });
+
+    // Clean formula from response — strip markdown code blocks, explanations etc.
+    if (result && result.response) {
+      let formula = result.response.trim();
+      // Remove markdown code blocks
+      const codeBlockMatch = formula.match(/```[\w]*\n?([\s\S]*?)```/);
+      if (codeBlockMatch) formula = codeBlockMatch[1].trim();
+      // Remove inline code backticks
+      formula = formula.replace(/^`+|`+$/g, '').trim();
+      // If there are multiple lines, find the one starting with =
+      if (formula.includes('\n')) {
+        const formulaLine = formula.split('\n').find(l => l.trim().startsWith('='));
+        if (formulaLine) formula = formulaLine.trim();
+      }
+      // Ensure it starts with =
+      if (!formula.startsWith('=') && formula.includes('=')) {
+        formula = formula.substring(formula.indexOf('='));
+      }
+      result.response = formula;
+    }
 
     res.json(result);
   } catch (err) {

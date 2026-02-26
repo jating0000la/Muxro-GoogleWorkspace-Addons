@@ -13,7 +13,7 @@
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const CONNECTOR_URL = 'http://localhost:9100';
-const DEFAULT_MODEL = 'qwen3:0.6b';
+const DEFAULT_MODEL = 'gemma3:1b';
 
 // ─── Menu Setup ──────────────────────────────────────────────────────────────
 function onOpen() {
@@ -90,7 +90,11 @@ function getAllSheetData() {
 // ─── Write AI Response to Cells ─────────────────────────────────────────────
 function writeToCell(value, row, col) {
   const sheet = SpreadsheetApp.getActiveSheet();
-  sheet.getRange(row, col).setValue(value);
+  if (row && col) {
+    sheet.getRange(row, col).setValue(value);
+  } else {
+    sheet.getActiveRange().getCell(1, 1).setValue(value);
+  }
 }
 
 function writeToRange(values, startRow, startCol) {
@@ -157,35 +161,73 @@ function translateSelection() {
   const response = ui.prompt('Translate', 'Enter target language:', ui.ButtonSet.OK_CANCEL);
 
   if (response.getSelectedButton() !== ui.Button.OK) return;
-  const targetLang = response.getResponseText();
+  const targetLang = response.getResponseText().trim();
+  if (!targetLang) { ui.alert('Please enter a target language.'); return; }
 
   const data = getSelectedData();
   if (data.error) { ui.alert(data.error); return; }
 
-  const html = HtmlService.createHtmlOutput(`
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-    <div id="status" style="font-family:Arial;padding:20px;">Translating to ${targetLang}...</div>
-    <script>
-      $.ajax({
-        url: '${CONNECTOR_URL}/api/sheets/analyze',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({
-          data: ${JSON.stringify(JSON.stringify(data.data))},
-          instruction: 'translate all text content to ${targetLang}. Return ONLY the translated data as CSV rows, one row per line.'
-        })
-      }).done(function(resp) {
-        var text = resp.response || resp;
-        var rows = text.trim().split('\\n').map(function(r) { return r.split(',').map(function(c) { return c.trim().replace(/^"|"$/g, ''); }); });
-        google.script.run.withSuccessHandler(function() {
-          document.getElementById('status').innerHTML = '<b>Translation complete!</b>';
-          setTimeout(function() { google.script.host.close(); }, 1500);
-        }).insertResultNextToSelection(rows.map(function(r) { return r.join(', '); }));
-      }).fail(function() {
-        document.getElementById('status').innerHTML = '<span style="color:red">Cannot connect. Is the Muxro AI Connector running?</span>';
-      });
-    </script>`)
-    .setWidth(350).setHeight(150);
+  // Safely encode data for embedding into the HTML template
+  const safeData = JSON.stringify(JSON.stringify(data.data));
+  const safeLang = JSON.stringify(targetLang);
+
+  const html = HtmlService.createHtmlOutput(
+    '<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>' +
+    '<div id="status" style="font-family:Arial;padding:20px;">' +
+    '<div style="text-align:center;"><div style="display:inline-block;width:20px;height:20px;border:3px solid #e0e0e0;border-top-color:#4285f4;border-radius:50%;animation:spin 0.8s linear infinite;"></div>' +
+    '<div style="margin-top:8px;color:#5f6368;">Translating to ' + targetLang.replace(/</g, '&lt;') + '...</div></div></div>' +
+    '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>' +
+    '<script>' +
+    'var targetLang = ' + safeLang + ';' +
+    'var sourceData = ' + safeData + ';' +
+    '$.ajax({' +
+    '  url: "' + CONNECTOR_URL + '/api/generate",' +
+    '  method: "POST",' +
+    '  contentType: "application/json",' +
+    '  data: JSON.stringify({' +
+    '    prompt: "Translate each cell value to " + targetLang + ". Input data (JSON 2D array): " + sourceData + "\\n\\nRespond with ONLY a JSON 2D array of translated strings. Same structure, same number of rows and columns. Example: [[\\"translated1\\",\\"translated2\\"],[\\"translated3\\",\\"translated4\\"]]. JSON array only, no explanations.",' +
+    '    model: "translategemma:4b",'+
+    '  }),' +
+    '  timeout: 120000' +
+    '}).done(function(resp) {' +
+    '  try {' +
+    '    var text = (resp.response || "").trim();' +
+    '    var match = text.match(/\\[\\s*\\[[\\s\\S]*\\]\\s*\\]/);' +
+    '    if (match) {' +
+    '      var translated = JSON.parse(match[0]);' +
+    '      var flat = translated.map(function(row) {' +
+    '        if (Array.isArray(row)) return row.join(", ");' +
+    '        return String(row);' +
+    '      });' +
+    '      google.script.run' +
+    '        .withSuccessHandler(function() {' +
+    '          document.getElementById("status").innerHTML = "<div style=\\"color:#1e8e3e;font-weight:bold;text-align:center;\\">\u2705 Translation complete! Check the column next to your selection.</div>";' +
+    '          setTimeout(function() { google.script.host.close(); }, 2000);' +
+    '        })' +
+    '        .withFailureHandler(function(err) {' +
+    '          document.getElementById("status").innerHTML = "<div style=\\"color:#d93025;\\">Error writing: " + (err.message || err) + "</div>";' +
+    '        })' +
+    '        .insertResultNextToSelection(flat);' +
+    '    } else {' +
+    '      var lines = text.split("\\n").filter(function(l) { return l.trim(); });' +
+    '      google.script.run' +
+    '        .withSuccessHandler(function() {' +
+    '          document.getElementById("status").innerHTML = "<div style=\\"color:#1e8e3e;font-weight:bold;text-align:center;\\">\u2705 Translation inserted!</div>";' +
+    '          setTimeout(function() { google.script.host.close(); }, 2000);' +
+    '        })' +
+    '        .withFailureHandler(function(err) {' +
+    '          document.getElementById("status").innerHTML = "<div style=\\"color:#d93025;\\">Error: " + (err.message || err) + "</div>";' +
+    '        })' +
+    '        .insertResultNextToSelection(lines);' +
+    '    }' +
+    '  } catch(e) {' +
+    '    document.getElementById("status").innerHTML = "<div style=\\"color:#d93025;\\">Parse error: " + e.message + "<br><pre style=\\"font-size:10px;max-height:100px;overflow:auto;\\">" + (resp.response || "") + "</pre></div>";' +
+    '  }' +
+    '}).fail(function() {' +
+    '  document.getElementById("status").innerHTML = \'<div style="color:#d93025;">Cannot connect. Is the Muxro AI Connector running on port 9100?</div>\';' +
+    '});' +
+    '</script>'
+  ).setWidth(400).setHeight(180);
   ui.showModalDialog(html, 'Translating...');
 }
 
@@ -195,34 +237,53 @@ function fillWithAI() {
   const response = ui.prompt('Fill with AI', 'Describe what data to generate (e.g., "10 random company names"):', ui.ButtonSet.OK_CANCEL);
 
   if (response.getSelectedButton() !== ui.Button.OK) return;
+  const desc = response.getResponseText().trim();
+  if (!desc) return;
 
-  const html = HtmlService.createHtmlOutput(`
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-    <div id="status" style="font-family:Arial;padding:20px;">Generating data...</div>
-    <script>
-      $.ajax({
-        url: '${CONNECTOR_URL}/api/generate',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify({
-          prompt: 'Generate the following data for a spreadsheet: ${response.getResponseText().replace(/'/g, "\\'")}. Output ONLY CSV format, no headers unless asked, no explanations.',
-          system: 'You are a data generator. Output clean CSV data only. No markdown, no explanations.'
-        })
-      }).done(function(resp) {
-        var text = (resp.response || resp).trim();
-        var rows = text.split('\\n').filter(function(r) { return r.trim(); });
-        var arr = rows.map(function(r) {
-          return r.split(',').map(function(c) { return c.trim().replace(/^"|"$/g, ''); });
-        });
-        google.script.run.withSuccessHandler(function() {
-          document.getElementById('status').innerHTML = '<b>Data generated!</b>';
-          setTimeout(function() { google.script.host.close(); }, 1500);
-        }).writeToRange(arr, SpreadsheetApp.getActiveSheet().getActiveRange().getRow(), SpreadsheetApp.getActiveSheet().getActiveRange().getColumn());
-      }).fail(function() {
-        document.getElementById('status').innerHTML = '<span style="color:red">Cannot connect. Is the Muxro AI Connector running?</span>';
-      });
-    </script>`)
-    .setWidth(350).setHeight(150);
+  // Get active cell position server-side before showing the dialog
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const range = sheet.getActiveRange();
+  const startRow = range ? range.getRow() : 1;
+  const startCol = range ? range.getColumn() : 1;
+  const safeDesc = JSON.stringify(desc);
+
+  const html = HtmlService.createHtmlOutput(
+    '<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>' +
+    '<div id="status" style="font-family:Arial;padding:20px;text-align:center;">' +
+    '<div style="display:inline-block;width:20px;height:20px;border:3px solid #e0e0e0;border-top-color:#4285f4;border-radius:50%;animation:spin 0.8s linear infinite;"></div>' +
+    '<div style="margin-top:8px;color:#5f6368;">Generating data...</div></div>' +
+    '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>' +
+    '<script>' +
+    '$.ajax({' +
+    '  url: "' + CONNECTOR_URL + '/api/generate",' +
+    '  method: "POST",' +
+    '  contentType: "application/json",' +
+    '  data: JSON.stringify({' +
+    '    prompt: "Generate the following data for a spreadsheet: " + ' + safeDesc + ' + ". Output ONLY CSV format, no headers unless asked, no explanations.",' +
+    '    model: "gemma3:1b",' +
+    '    system: "You are a data generator. Output clean CSV data only. No markdown, no explanations."' +
+    '  }),' +
+    '  timeout: 120000' +
+    '}).done(function(resp) {' +
+    '  var text = (resp.response || "").trim();' +
+    '  var rows = text.split("\\n").filter(function(r) { return r.trim(); });' +
+    '  var arr = rows.map(function(r) {' +
+    '    return r.split(",").map(function(c) { return c.trim().replace(/^"|"$/g, ""); });' +
+    '  });' +
+    '  google.script.run' +
+    '    .withSuccessHandler(function() {' +
+    '      document.getElementById("status").innerHTML = "<div style=\\"color:#1e8e3e;font-weight:bold;\\">\\u2705 Data generated!</div>";' +
+    '      setTimeout(function() { google.script.host.close(); }, 1500);' +
+    '    })' +
+    '    .withFailureHandler(function(err) {' +
+    '      document.getElementById("status").innerHTML = "<div style=\\"color:#d93025;\\">Error: " + (err.message || err) + "</div>";' +
+    '    })' +
+    '    .writeToRange(arr, ' + startRow + ', ' + startCol + ');' +
+    '}).fail(function() {' +
+    '  document.getElementById("status").innerHTML = \'<div style="color:#d93025;">Cannot connect. Is the Muxro AI Connector running?</div>\';' +
+    '});' +
+    '</script>'
+  ).setWidth(350).setHeight(150);
   ui.showModalDialog(html, 'Generating...');
 }
 

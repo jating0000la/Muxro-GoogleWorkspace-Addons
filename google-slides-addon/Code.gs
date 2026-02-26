@@ -13,7 +13,7 @@
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const CONNECTOR_URL = 'http://localhost:9100';
-const DEFAULT_MODEL = 'qwen3:0.6b';
+const DEFAULT_MODEL = 'gemma3:1b';
 
 // ─── Menu Setup ──────────────────────────────────────────────────────────────
 function onOpen() {
@@ -121,6 +121,27 @@ function getCurrentSlideInfo() {
   };
 }
 
+// ─── Normalize a bullet that may be a string or an object ───────────────────
+function normalizeBulletItem(item) {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object') {
+    // Explicitly check typeof string to avoid returning nested objects
+    const candidates = [item.text, item.content, item.point, item.bullet,
+                        item.description, item.item, item.value, item.label];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c) return c;
+    }
+    // Fall back to any string-valued property
+    const strVals = Object.values(item).filter(v => typeof v === 'string' && v);
+    if (strVals.length) return strVals[0];
+    // Recurse one level if value is itself an object
+    const objVals = Object.values(item).filter(v => v && typeof v === 'object');
+    if (objVals.length) return normalizeBulletItem(objVals[0]);
+    return JSON.stringify(item);
+  }
+  return String(item);
+}
+
 // ─── Create Slides from AI Generated Content ────────────────────────────────
 function createSlidesFromData(slidesData) {
   const presentation = SlidesApp.getActivePresentation();
@@ -152,7 +173,7 @@ function createSlidesFromData(slidesData) {
         pType === SlidesApp.PlaceholderType.SLIDE_NUMBER
       )) {
         if (pType !== SlidesApp.PlaceholderType.SLIDE_NUMBER) {
-          const bullets = slideInfo.bullets || [];
+          const bullets = (slideInfo.bullets || []).map(normalizeBulletItem);
           shape.getText().setText(bullets.join('\n'));
           bodySet = true;
         }
@@ -170,7 +191,7 @@ function createSlidesFromData(slidesData) {
         textShapes[0].getText().setText(slideInfo.title || 'Slide ' + (index + 1));
       }
       if (!bodySet && textShapes[1]) {
-        const bullets = slideInfo.bullets || [];
+        const bullets = (slideInfo.bullets || []).map(normalizeBulletItem);
         textShapes[1].getText().setText(bullets.join('\n'));
       }
     }
