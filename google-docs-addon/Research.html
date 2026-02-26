@@ -87,9 +87,30 @@
     .report-content {
       background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px;
       padding: 12px; max-height: 400px; overflow-y: auto;
-      white-space: pre-wrap; font-size: 12px; line-height: 1.6;
+      font-size: 12px; line-height: 1.6;
       border-left: 4px solid #8e24aa;
     }
+    /* Markdown rendered styles */
+    .report-content h1 { font-size: 16px; font-weight: 700; color: #1a73e8; margin: 14px 0 6px; border-bottom: 1px solid #dadce0; padding-bottom: 4px; }
+    .report-content h2 { font-size: 14px; font-weight: 700; color: #8e24aa; margin: 12px 0 5px; }
+    .report-content h3 { font-size: 13px; font-weight: 600; color: #5f6368; margin: 10px 0 4px; }
+    .report-content h4, .report-content h5, .report-content h6 { font-size: 12px; font-weight: 600; color: #5f6368; margin: 8px 0 4px; }
+    .report-content p { margin: 6px 0; }
+    .report-content ul, .report-content ol { margin: 6px 0; padding-left: 20px; }
+    .report-content li { margin: 3px 0; }
+    .report-content strong { color: #202124; }
+    .report-content em { color: #5f6368; }
+    .report-content code { background: #e8eaed; padding: 1px 4px; border-radius: 3px; font-size: 11px; font-family: 'Roboto Mono', monospace; }
+    .report-content pre { background: #e8eaed; padding: 8px; border-radius: 4px; overflow-x: auto; margin: 6px 0; }
+    .report-content pre code { background: none; padding: 0; }
+    .report-content blockquote { border-left: 3px solid #dadce0; padding-left: 10px; color: #5f6368; margin: 6px 0; }
+    .report-content hr { border: none; border-top: 1px solid #dadce0; margin: 10px 0; }
+    .report-content table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }
+    .report-content th, .report-content td { border: 1px solid #dadce0; padding: 4px 8px; text-align: left; }
+    .report-content th { background: #e8eaed; font-weight: 600; }
+    .report-content a { color: #1a73e8; text-decoration: none; }
+    .report-content a:hover { text-decoration: underline; }
+    .report-content .citation { display: inline-block; background: #e8eaf6; color: #5c6bc0; font-size: 10px; font-weight: 600; padding: 0 4px; border-radius: 3px; vertical-align: super; line-height: 1; }
     .report-meta {
       font-size: 10px; color: #80868b; margin-top: 8px; padding: 6px;
       background: #f8f9fa; border-radius: 4px;
@@ -111,6 +132,7 @@
     .tips strong { color: #5f6368; }
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
@@ -172,6 +194,49 @@
   const PROXY = 'http://localhost:9100';
   let currentReport = '';
   let researchRunning = false;
+
+  // Configure marked for safe rendering
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({
+      breaks: true,      // Convert \n to <br>
+      gfm: true,         // GitHub Flavored Markdown
+      headerIds: false,
+      mangle: false,
+    });
+  }
+
+  /**
+   * Render markdown to HTML with citation styling.
+   * [S1], [S2] etc. get wrapped in styled <span> tags.
+   */
+  function renderMarkdown(text) {
+    if (!text) return '';
+    var html;
+    if (typeof marked !== 'undefined' && marked.parse) {
+      html = marked.parse(text);
+    } else {
+      // Fallback: basic formatting if marked.js failed to load
+      html = basicMarkdown(text);
+    }
+    // Style citation markers [S1], [S2], etc.
+    html = html.replace(/\[S(\d+)\]/g, '<span class="citation">[S$1]</span>');
+    return html;
+  }
+
+  // Minimal fallback if CDN fails
+  function basicMarkdown(text) {
+    var safe = $('<div>').text(text).html();
+    safe = safe.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    safe = safe.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    safe = safe.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    safe = safe.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    safe = safe.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+    safe = safe.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+    safe = safe.replace(/^---$/gm, '<hr>');
+    safe = safe.replace(/\n/g, '<br>');
+    return safe;
+  }
 
   // Stage progress mapping (approximate)
   const STAGE_PROGRESS = {
@@ -315,8 +380,8 @@
     );
     addProgressLog('done', 'Report generated successfully');
 
-    // Show report
-    $('#reportContent').text(currentReport);
+    // Show report (render markdown to HTML)
+    $('#reportContent').html(renderMarkdown(currentReport));
     $('#reportArea').addClass('visible');
 
     // Show sources
