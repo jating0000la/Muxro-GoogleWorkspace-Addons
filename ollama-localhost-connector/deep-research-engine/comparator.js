@@ -1,8 +1,9 @@
 /**
  * Deep Research Engine - PASS 3: Cross-Source Comparator
  * 
- * Merges and compares structured findings from all sources.
- * Identifies agreements, contradictions, unique findings, and gaps.
+ * Merges findings from all sources into a consolidated summary.
+ * Identifies what sources agree on, contradictions, and gaps.
+ * Output is in plain language without source references.
  */
 
 const { callOllama } = require('./ollamaClient');
@@ -40,18 +41,17 @@ async function compare(allFacts, allSummaries) {
     ? mergedText.substring(0, 3000) + '...'
     : mergedText;
 
-  const prompt = `You are a research comparator.
+  const prompt = `You are a research analyst. Combine the findings from multiple sources into one clear summary.
 
-Using structured findings from multiple sources:
+Cover:
+- What the sources agree on
+- Key facts, numbers, and statistics
+- Anything uncertain or contradictory between sources
+- What important information is missing
 
-1. List agreements
-2. List contradictions
-3. List unique findings
-4. List missing but important areas
-
-Return structured bullet output.
-Be concise.
-No long explanations.
+Write in plain, simple language.
+Do NOT use source references like [S1] or [S2].
+Be concise and clear.
 
 FINDINGS:
 ${truncated}`;

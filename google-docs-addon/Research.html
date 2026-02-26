@@ -110,7 +110,7 @@
     .report-content th { background: #e8eaed; font-weight: 600; }
     .report-content a { color: #1a73e8; text-decoration: none; }
     .report-content a:hover { text-decoration: underline; }
-    .report-content .citation { display: inline-block; background: #e8eaf6; color: #5c6bc0; font-size: 10px; font-weight: 600; padding: 0 4px; border-radius: 3px; vertical-align: super; line-height: 1; }
+
     .report-meta {
       font-size: 10px; color: #80868b; margin-top: 8px; padding: 6px;
       background: #f8f9fa; border-radius: 4px;
@@ -206,8 +206,8 @@
   }
 
   /**
-   * Render markdown to HTML with citation styling.
-   * [S1], [S2] etc. get wrapped in styled <span> tags.
+   * Render markdown to HTML.
+   * Strips any stray [S1] markers the model might produce.
    */
   function renderMarkdown(text) {
     if (!text) return '';
@@ -218,8 +218,8 @@
       // Fallback: basic formatting if marked.js failed to load
       html = basicMarkdown(text);
     }
-    // Style citation markers [S1], [S2], etc.
-    html = html.replace(/\[S(\d+)\]/g, '<span class="citation">[S$1]</span>');
+    // Clean up any stray source markers the model may produce
+    html = html.replace(/\[S\d+\]/g, '');
     return html;
   }
 
@@ -387,11 +387,11 @@
     // Show sources
     var sourceHtml = '';
     if (data.sources && data.sources.length > 0) {
-      data.sources.forEach(function(s) {
+      data.sources.forEach(function(s, i) {
         var safeTitle = $('<span>').text(s.title || s.url).html();
         var safeUrl = encodeURI(s.url || '');
         sourceHtml += '<div class="source-item">' +
-          '<span class="source-label">[' + s.source + ']</span> ' +
+          '<span class="source-label">' + (i + 1) + '.</span> ' +
           '<a href="' + safeUrl + '" target="_blank">' + safeTitle + '</a>' +
           ' <span style="color:#80868b;">(' + (s.wordCount || 0) + ' words, ' + (s.factsCount || 0) + ' facts)</span>' +
           '</div>';

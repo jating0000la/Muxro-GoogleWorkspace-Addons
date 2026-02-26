@@ -40,24 +40,25 @@ async function summarize(factData) {
   const factsText = factLines.join('\n');
 
   if (!factsText.trim()) {
-    return `[${sourceLabel}] No extractable facts found.`;
+    return 'No extractable facts found.';
   }
 
-  const prompt = `Summarize the verified facts below in 5 bullet points.
-Use neutral tone.
+  const prompt = `Summarize these facts in 5 short bullet points.
+Use simple, plain language.
 Do not add new information.
+Do not reference source labels.
 
-Source ${sourceLabel} findings:
+Facts:
 ${factsText}
 
 Return ONLY 5 bullet points. No introduction. No conclusion.`;
 
   try {
     const response = await callOllama(prompt, { maxPredict: 300 });
-    return `[${sourceLabel}] Summary:\n${response}`;
+    return response;
   } catch (err) {
     console.error(`[Summarizer] Error for ${sourceLabel}: ${err.message}`);
-    return `[${sourceLabel}] Summary generation failed: ${err.message}`;
+    return `Summary generation failed: ${err.message}`;
   }
 }
 

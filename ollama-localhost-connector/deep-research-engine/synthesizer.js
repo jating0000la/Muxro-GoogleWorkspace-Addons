@@ -1,9 +1,9 @@
 /**
  * Deep Research Engine - PASS 4: Final Synthesizer
  * 
- * Generates the final structured research report.
+ * Generates the final research report in clear, simple language.
  * Uses comparison results from Pass 3.
- * Produces citation-based output with [S1], [S2] references.
+ * Sources are listed separately by the UI, not inline in the text.
  */
 
 const { callOllama } = require('./ollamaClient');
@@ -26,40 +26,29 @@ async function synthesize(query, comparisonResult, sourceList) {
     ? comparisonResult.substring(0, 2500) + '...'
     : comparisonResult;
 
-  const prompt = `You are a research writer.
+  const prompt = `You are a helpful researcher who explains things clearly and simply.
 
-Research question: "${query}"
+Question: "${query}"
 
-Using the comparison results below:
-
-Generate structured report with:
-
-1. Executive Summary (short)
-2. Key Verified Findings
-3. Conflicting Points
-4. Important Statistics
-5. Gaps in Evidence
-6. Balanced Conclusion
-7. Confidence Level (Low/Medium/High)
+Using only the research findings below, write a clear and easy-to-understand answer.
 
 Rules:
-- Do not invent data
-- If uncertain, say 'Insufficient evidence'
-- Reference sources as [S1], [S2], etc.
-- Keep output concise and structured.
+- Write in simple, plain English like you are explaining to a friend
+- Use short paragraphs and short sentences
+- Include specific facts, numbers, and details found in the research
+- Do NOT use source references like [S1], [S2] in your text
+- Do NOT use bullet lists of agreements/contradictions — just explain naturally
+- If information conflicts between sources, mention it in a natural way
+- If there is not enough information, honestly say what is missing
+- Do NOT make up any information
+- Keep it concise but thorough
 
-Sources:
-${sourceLegend}
-
-Comparison findings:
+Research findings:
 ${truncatedComparison}`;
 
   try {
     const response = await callOllama(prompt, { maxPredict: 600 });
-
-    // Append source reference list
-    const report = response + '\n\n---\nSOURCES:\n' + sourceLegend;
-    return report;
+    return response;
   } catch (err) {
     console.error(`[Synthesizer] Error: ${err.message}`);
     return `Report generation failed: ${err.message}`;
