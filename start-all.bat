@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 title Muxro AI - Auto Setup
 color 0A
 echo ============================================================
@@ -71,7 +72,7 @@ if "%OLLAMA_STATUS%"=="RUNNING" (
     :: Wait up to 30 seconds for Ollama to start
     set RETRIES=0
     :wait_ollama
-    if %RETRIES% geq 15 (
+    if !RETRIES! geq 15 (
         color 0C
         echo    ERROR: Ollama failed to start within 30 seconds.
         echo    Try running "ollama serve" manually in another terminal.
@@ -82,9 +83,9 @@ if "%OLLAMA_STATUS%"=="RUNNING" (
     powershell -Command "& { try { Invoke-WebRequest -Uri http://localhost:11434/api/tags -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop | Out-Null; Write-Host 'OK' } catch { Write-Host 'WAIT' } }" > "%TEMP%\ollama_check.txt" 2>&1
     set /p OLLAMA_CHECK=<"%TEMP%\ollama_check.txt"
     del "%TEMP%\ollama_check.txt" 2>nul
-    if not "%OLLAMA_CHECK%"=="OK" (
+    if not "!OLLAMA_CHECK!"=="OK" (
         set /a RETRIES+=1
-        echo    Retry %RETRIES%/15...
+        echo    Retry !RETRIES!/15...
         goto wait_ollama
     )
     echo    Ollama is ready!
@@ -114,10 +115,19 @@ echo.
 :: ─── 6. Install npm deps & start proxy server ───────────────────
 echo [6/6] Starting the proxy connector server...
 
+:: Kill any existing process on port 9100 first
+powershell -Command "& { $p = netstat -ano 2>$null | Select-String ':9100\s.*LISTENING'; if ($p) { $pid = ($p -split '\s+')[-1]; taskkill /f /pid $pid 2>$null; Write-Host '   Freed port 9100.' } }" 2>nul
+
 if not exist "%CONNECTOR_DIR%\node_modules" (
     echo    Installing npm dependencies...
     cd /d "%CONNECTOR_DIR%"
     call npm install
+    if %ERRORLEVEL% neq 0 (
+        color 0C
+        echo    ERROR: npm install failed. Check Node.js installation.
+        pause
+        exit /b 1
+    )
     echo.
 )
 
@@ -142,3 +152,15 @@ echo ============================================================
 echo.
 
 node server.js
+set NODE_EXIT=%ERRORLEVEL%
+echo.
+echo ============================================================
+if %NODE_EXIT% neq 0 (
+    color 0C
+    echo   ERROR: Proxy server stopped unexpectedly! Exit code: %NODE_EXIT%
+    echo   Check that Node.js is working and port 9100 is free.
+) else (
+    echo   Proxy server stopped.
+)
+echo ============================================================
+pause
