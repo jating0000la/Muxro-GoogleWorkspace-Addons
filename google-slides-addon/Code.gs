@@ -127,23 +127,59 @@ function createSlidesFromData(slidesData) {
 
   slidesData.forEach((slideInfo, index) => {
     const slide = presentation.appendSlide(SlidesApp.PredefinedLayout.TITLE_AND_BODY);
+    const shapes = slide.getShapes();
 
-    // Set title
-    const titleShape = slide.getPlaceholder(SlidesApp.PlaceholderType.TITLE);
-    if (titleShape) {
-      titleShape.getText().setText(slideInfo.title || 'Slide ' + (index + 1));
-    }
+    let titleSet = false;
+    let bodySet = false;
 
-    // Set body content
-    const bodyShape = slide.getPlaceholder(SlidesApp.PlaceholderType.BODY);
-    if (bodyShape) {
-      const bullets = slideInfo.bullets || [];
-      bodyShape.getText().setText(bullets.join('\n'));
+    shapes.forEach(shape => {
+      if (!shape.getText) return;
+      const pType = shape.getPlaceholderType ? shape.getPlaceholderType() : null;
+
+      // Match any title-like placeholder
+      if (!titleSet && (
+        pType === SlidesApp.PlaceholderType.TITLE ||
+        pType === SlidesApp.PlaceholderType.CENTER_TITLE ||
+        pType === SlidesApp.PlaceholderType.SUBTITLE
+      )) {
+        shape.getText().setText(slideInfo.title || 'Slide ' + (index + 1));
+        titleSet = true;
+      }
+      // Match any body-like placeholder
+      else if (!bodySet && (
+        pType === SlidesApp.PlaceholderType.BODY ||
+        pType === SlidesApp.PlaceholderType.OBJECT ||
+        pType === SlidesApp.PlaceholderType.SLIDE_NUMBER
+      )) {
+        if (pType !== SlidesApp.PlaceholderType.SLIDE_NUMBER) {
+          const bullets = slideInfo.bullets || [];
+          shape.getText().setText(bullets.join('\n'));
+          bodySet = true;
+        }
+      }
+    });
+
+    // Fallback: if no placeholders matched, use first two shapes by position
+    if (!titleSet || !bodySet) {
+      const textShapes = shapes
+        .filter(s => s.getText && s.getPlaceholderType &&
+          s.getPlaceholderType() !== SlidesApp.PlaceholderType.NONE)
+        .sort((a, b) => a.getTop() - b.getTop());
+
+      if (!titleSet && textShapes[0]) {
+        textShapes[0].getText().setText(slideInfo.title || 'Slide ' + (index + 1));
+      }
+      if (!bodySet && textShapes[1]) {
+        const bullets = slideInfo.bullets || [];
+        textShapes[1].getText().setText(bullets.join('\n'));
+      }
     }
 
     // Set speaker notes
     if (slideInfo.notes) {
-      slide.getNotesPage().getSpeakerNotesShape().getText().setText(slideInfo.notes);
+      try {
+        slide.getNotesPage().getSpeakerNotesShape().getText().setText(slideInfo.notes);
+      } catch(e) { /* notes optional */ }
     }
   });
 
