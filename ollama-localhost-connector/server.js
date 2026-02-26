@@ -457,11 +457,15 @@ app.get('/api/research/debug', async (req, res) => {
     const hasPing = html.includes('ping="/url?');
     const hasDataVed = html.includes('data-ved');
     const hasCaptcha = html.includes('captcha') || html.includes('CAPTCHA') || html.includes('sorry/index');
+    const isDDG  = html.includes('duckduckgo.com') || html.includes('uddg=');
+    const isBing = html.includes('b_algo') || html.includes('bing.com');
 
     res.json({
       htmlLength: html.length,
+      engine: isDDG ? 'DuckDuckGo' : isBing ? 'Bing' : 'Unknown/Google',
       hasCaptcha,
-      patterns: { hasJsname, hasRedirect, hasPing, hasDataVed },
+      patterns: { hasJsname, hasRedirect, hasPing, hasDataVed,
+                  hasUddg: html.includes('uddg='), hasBAlgo: html.includes('b_algo') },
       linksExtracted: links.length,
       links,
       htmlSnippet: snippet,

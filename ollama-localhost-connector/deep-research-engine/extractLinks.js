@@ -1,40 +1,38 @@
 /**
  * Deep Research Engine - Link Extractor
  *
- * Extracts organic search result URLs from Google Search HTML.
- * Covers multiple Google HTML patterns (classic, modern 2024-2026):
- *   1. /url?q=  - classic redirect wrapper
- *   2. jsname="UWckNb" - modern organic result anchor
- *   3. ping="/url?...url=" - ping attribute (URL-encoded target)
- *   4. data-ved on direct href - organic result with tracking param
- *   5. data-href attributes
- *   6. Broad fallback - any external https link in the HTML
+ * Extracts organic search result URLs from search engine HTML.
+ *
+ * Engine detection order (matches search.js priority):
+ *   1. DuckDuckGo  — uddg= parameter in redirect links (primary engine)
+ *   2. Bing        — <h2><a href="..."> inside b_algo result items
+ *   3. Google      — fallback patterns for jsname/ping/data-ved (rarely reached)
  */
 
 const config = require('./config');
 
-// Domains to skip (not useful for research)
+// Domains to exclude from results
 const BLOCKED_DOMAINS = [
   'google.com', 'google.co', 'googleapis.com', 'gstatic.com',
+  'duckduckgo.com', 'bing.com', 'yahoo.com', 'search.yahoo.com',
   'youtube.com', 'youtu.be',
   'facebook.com', 'twitter.com', 'x.com', 'instagram.com',
   'tiktok.com', 'pinterest.com', 'reddit.com',
   'amazon.com', 'ebay.com',
-  'accounts.google', 'maps.google', 'play.google',
   'webcache.googleusercontent.com',
   'translate.google', 'news.google',
 ];
 
-// File extensions to skip
 const BLOCKED_EXTENSIONS = [
   '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
   '.zip', '.rar', '.mp4', '.mp3', '.jpg', '.png', '.gif', '.webp', '.svg',
 ];
 
 /**
- * Extract organic result links from Google Search HTML
- * @param {string} html - Raw Google Search page HTML
- * @returns {Array<{url: string, title: string}>} Array of extracted links
+ * Extract organic result links from search engine HTML.
+ * Auto-detects the engine from HTML content.
+ * @param {string} html
+ * @returns {Array<{url: string, title: string}>}
  */
 function extractLinks(html) {
   if (!html) return [];
@@ -43,79 +41,74 @@ function extractLinks(html) {
   const seen = new Set();
   let match;
 
-  // ── Pattern 1: Classic /url?q= redirect wrapper ──────────────────────
-  // e.g. href="/url?q=https://example.com/page&sa=U"
-  const p1 = /href="\/url\?q=(https?:\/\/[^&"]+)/gi;
-  while ((match = p1.exec(html)) !== null) {
-    addLink(decodeURIComponent(match[1]), links, seen);
+  // ── 1. DuckDuckGo: class="result__a" direct href ────────────────────
+  // DDG HTML: <a rel="nofollow" class="result__a" href="https://actualsite.com">
+  // No redirect wrapper — href is the real URL directly.
+  const pDDG_a = /class="result__a"[^>]*href="(https?:\/\/[^"]+)"/gi;
+  while ((match = pDDG_a.exec(html)) !== null) {
+    addLink(match[1], links, seen);
+  }
+  // href may appear before class
+  const pDDG_b = /href="(https?:\/\/[^"]+)"[^>]*class="result__a"/gi;
+  while ((match = pDDG_b.exec(html)) !== null) {
+    addLink(match[1], links, seen);
   }
 
-  // ── Pattern 2: Modern jsname="UWckNb" organic result anchor ──────────
-  // e.g. <a jsname="UWckNb" href="https://example.com">
-  const p2a = /jsname="UWckNb"[^>]*href="(https?:\/\/[^"]+)"/gi;
-  while ((match = p2a.exec(html)) !== null) {
-    addLink(decodeURIComponent(match[1]), links, seen);
-  }
-  // href may appear before jsname
-  const p2b = /href="(https?:\/\/[^"]+)"[^>]*jsname="UWckNb"/gi;
-  while ((match = p2b.exec(html)) !== null) {
-    addLink(decodeURIComponent(match[1]), links, seen);
+  if (links.length >= config.search.maxLinks) return links.slice(0, config.search.maxLinks);
+
+  // ── 2. Bing: <h2><a href="https://..."> inside b_algo items ──────────
+  // Bing wraps each organic result in <li class="b_algo">...</li>
+  // The real URL is in the <h2><a href="..."> element (not a redirect).
+  const pBing = /<h2>\s*<a[^>]*href="(https?:\/\/(?!www\.bing\.com)[^"]{10,})"/gi;
+  while ((match = pBing.exec(html)) !== null) {
+    addLink(match[1], links, seen);
   }
 
-  // ── Pattern 3: ping attribute contains actual URL (URL-encoded) ───────
-  // e.g. ping="/url?sa=t&source=web&url=https%3A%2F%2Fexample.com"
-  const p3 = /ping="\/url\?[^"]*url=(https?[^"&]+)"/gi;
-  while ((match = p3.exec(html)) !== null) {
-    try {
-      addLink(decodeURIComponent(match[1]), links, seen);
-    } catch (e) {
-      addLink(match[1], links, seen);
-    }
+  // Also catch Bing's tracked URLs via href containing actual destination
+  const pBingTrack = /href="(https?:\/\/(?!(?:www\.)?bing\.com)[^"]{15,})"[^>]*class="[^"]*tilk/gi;
+  while ((match = pBingTrack.exec(html)) !== null) {
+    addLink(match[1], links, seen);
   }
 
-  // ── Pattern 4: <a href="https://..." data-ved="..."> ──────────────────
-  // data-ved is Google's tracking param present on all organic result links
-  const p4a = /href="(https?:\/\/[^"]{10,})"[^>]*data-ved/gi;
-  while ((match = p4a.exec(html)) !== null) {
-    addLink(decodeURIComponent(match[1]), links, seen);
-  }
-  const p4b = /data-ved="[^"]+"[^>]*href="(https?:\/\/[^"]{10,})"/gi;
-  while ((match = p4b.exec(html)) !== null) {
-    addLink(decodeURIComponent(match[1]), links, seen);
+  if (links.length >= config.search.maxLinks) return links.slice(0, config.search.maxLinks);
+
+  // ── 3. Google classic: /url?q= redirect ──────────────────────────────
+  const pG1 = /href="\/url\?q=(https?:\/\/[^&"]+)/gi;
+  while ((match = pG1.exec(html)) !== null) {
+    try { addLink(decodeURIComponent(match[1]), links, seen); } catch (e) { /* skip */ }
   }
 
-  // ── Pattern 5: data-href attributes ──────────────────────────────────
-  const p5 = /data-href="(https?:\/\/[^"]+)"/gi;
-  while ((match = p5.exec(html)) !== null) {
-    addLink(decodeURIComponent(match[1]), links, seen);
+  // ── 4. Google modern: jsname="UWckNb" organic anchor ─────────────────
+  const pG2a = /jsname="UWckNb"[^>]*href="(https?:\/\/[^"]+)"/gi;
+  while ((match = pG2a.exec(html)) !== null) { addLink(match[1], links, seen); }
+  const pG2b = /href="(https?:\/\/[^"]+)"[^>]*jsname="UWckNb"/gi;
+  while ((match = pG2b.exec(html)) !== null) { addLink(match[1], links, seen); }
+
+  // ── 5. Google ping attribute ──────────────────────────────────────────
+  const pG3 = /ping="\/url\?[^"]*url=(https?[^"&]+)"/gi;
+  while ((match = pG3.exec(html)) !== null) {
+    try { addLink(decodeURIComponent(match[1]), links, seen); } catch (e) { /* skip */ }
   }
 
-  // ── Pattern 6: Broad fallback — any <a href="https://..."> ───────────
-  // Only runs if we still need more links
+  // ── 6. Broad fallback: any direct <a href="https://..."> ─────────────
+  // addLink() handles domain filtering — we just grab all external https links.
   if (links.length < config.search.maxLinks) {
-    // Skip google.*, javascript:, #anchors, relative paths
-    const p6 = /<a\s[^>]*href="(https:\/\/(?!(?:www\.)?(?:google\.|gstatic\.|googleapis\.|youtube\.|youtu\.be|facebook\.|twitter\.|x\.com|instagram\.|tiktok\.|pinterest\.|webcache\.))[^"]{15,})"/gi;
-    while ((match = p6.exec(html)) !== null) {
-      addLink(decodeURIComponent(match[1]), links, seen);
-      if (links.length >= config.search.maxLinks * 4) break; // cap scan
+    const pFallback = /href="(https:\/\/[^"]{15,})"/gi;
+    while ((match = pFallback.exec(html)) !== null) {
+      addLink(match[1], links, seen);
+      if (links.length >= config.search.maxLinks * 4) break;
     }
   }
 
-  // Limit to max links
   return links.slice(0, config.search.maxLinks);
 }
 
-/**
- * Add a link if it passes all filters
- */
 function addLink(url, links, seen) {
-  // Clean URL
-  url = url.split('#')[0].split('?utm_')[0];
-
-  // Dedup
+  if (!url) return;
+  url = url.split('#')[0].replace(/&amp;/g, '&').split('?utm_')[0].trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
   if (seen.has(url)) return;
 
-  // Block known domains
   const domainMatch = url.match(/^https?:\/\/(?:www\.)?([^/]+)/);
   if (!domainMatch) return;
   const domain = domainMatch[1].toLowerCase();
@@ -123,21 +116,14 @@ function addLink(url, links, seen) {
   for (const blocked of BLOCKED_DOMAINS) {
     if (domain.includes(blocked)) return;
   }
-
-  // Block file extensions
   const pathLower = url.toLowerCase();
   for (const ext of BLOCKED_EXTENSIONS) {
     if (pathLower.endsWith(ext)) return;
   }
 
-  // Must be http/https
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
-
   seen.add(url);
-  links.push({
-    url: url,
-    title: domain, // Will be enriched later if possible
-  });
+  links.push({ url, title: domain });
 }
 
 module.exports = { extractLinks };
+
