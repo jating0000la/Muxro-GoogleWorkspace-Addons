@@ -37,6 +37,7 @@ function onOpen() {
       .addItem('Blog Post', 'generateBlog')
       .addItem('Custom...', 'generateCustom'))
     .addSeparator()
+    .addItem('🔬 Deep Research', 'showResearchSidebar')
     .addItem('Summarize Entire Document', 'summarizeDocument')
     .addItem('Settings', 'showSettings')
     .addToUi();
@@ -57,7 +58,13 @@ function showSettings() {
     .setHeight(300);
   DocumentApp.getUi().showModalDialog(html, 'Muxro AI Settings');
 }
-
+// ─── Show Deep Research Sidebar ──────────────────────────────────────────
+function showResearchSidebar() {
+  const html = HtmlService.createHtmlOutputFromFile('Research')
+    .setTitle('🔬 Deep Research')
+    .setWidth(400);
+  DocumentApp.getUi().showSidebar(html);
+}
 // ─── Get Selected Text ──────────────────────────────────────────────────────
 function getSelectedText() {
   const doc = DocumentApp.getActiveDocument();

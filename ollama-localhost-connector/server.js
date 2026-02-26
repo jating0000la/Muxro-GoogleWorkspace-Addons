@@ -434,7 +434,80 @@ app.post('/api/slides/improve', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ─── Deep Research Engine ────────────────────────────────────────────────
+const { runResearch } = require('./deep-research-engine');
 
+// Deep Research: Start research (blocking - waits for full completion)
+app.post('/api/research', async (req, res) => {
+  try {
+    const { query, model } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: 'Missing required field: query' });
+    }
+
+    console.log(`[Research] Starting deep research for: "${query}"`);
+
+    const progressLog = [];
+    const onProgress = (stage, detail) => {
+      const entry = `[${stage}] ${detail}`;
+      progressLog.push(entry);
+      if (CONFIG.verbose) console.log(`[Research] ${entry}`);
+    };
+
+    const result = await runResearch(query, onProgress);
+
+    res.json({
+      success: true,
+      report: result.report,
+      sources: result.sources,
+      metadata: result.metadata,
+      progressLog: progressLog,
+    });
+  } catch (err) {
+    console.error('[Research Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Deep Research: Start research with SSE progress streaming
+app.get('/api/research/stream', async (req, res) => {
+  const query = req.query.q;
+  if (!query) {
+    return res.status(400).json({ error: 'Missing query parameter: q' });
+  }
+
+  // Set up Server-Sent Events
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent('progress', { stage: 'init', detail: 'Starting deep research...' });
+
+  try {
+    const onProgress = (stage, detail) => {
+      sendEvent('progress', { stage, detail });
+    };
+
+    const result = await runResearch(query, onProgress);
+
+    sendEvent('complete', {
+      report: result.report,
+      sources: result.sources,
+      metadata: result.metadata,
+    });
+  } catch (err) {
+    sendEvent('error', { message: err.message });
+  }
+
+  res.end();
+});
 // ─── Generic AI endpoint (for custom Apps Script usage) ─────────────────────
 app.post('/api/ask', async (req, res) => {
   try {
@@ -483,6 +556,8 @@ app.listen(CONFIG.proxyPort, () => {
   console.log('║   POST /api/generate  - Generate text                ║');
   console.log('║   POST /api/chat      - Multi-turn chat              ║');
   console.log('║   POST /api/ask       - Simple Q&A                   ║');
+  console.log('║   POST /api/research  - Deep Research (blocking)     ║');
+  console.log('║   GET  /api/research/stream?q= - Research (SSE)      ║');
   console.log('║   POST /api/sheets/*  - Google Sheets helpers        ║');
   console.log('║   POST /api/docs/*    - Google Docs helpers          ║');
   console.log('║   POST /api/slides/*  - Google Slides helpers        ║');

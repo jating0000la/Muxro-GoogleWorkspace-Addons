@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #333; background: #f8f9fa; }
+
+    .header {
+      background: linear-gradient(135deg, #1a73e8, #8e24aa);
+      color: white; padding: 16px; text-align: center;
+    }
+    .header h2 { font-size: 16px; margin-bottom: 4px; }
+    .header .subtitle { font-size: 11px; opacity: 0.85; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .status-dot.connected { background: #81c784; }
+    .status-dot.disconnected { background: #ef5350; }
+
+    .section { padding: 12px; border-bottom: 1px solid #e0e0e0; background: white; }
+    .section-title { font-weight: 600; font-size: 12px; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+
+    select, input, textarea {
+      width: 100%; padding: 8px 10px; border: 1px solid #dadce0;
+      border-radius: 6px; font-size: 13px; font-family: inherit; outline: none;
+    }
+    select:focus, input:focus, textarea:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.15); }
+    textarea { min-height: 60px; resize: vertical; }
+
+    .btn {
+      display: inline-block; padding: 10px 16px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+      width: 100%; text-align: center;
+    }
+    .btn-research { background: linear-gradient(135deg, #1a73e8, #8e24aa); color: white; }
+    .btn-research:hover { opacity: 0.9; }
+    .btn-secondary { background: #f1f3f4; color: #3c4043; border: 1px solid #dadce0; }
+    .btn-secondary:hover { background: #e8eaed; }
+    .btn-success { background: #34a853; color: white; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 4px; font-weight: 500; }
+
+    /* Progress area */
+    .progress-area {
+      display: none; padding: 12px; background: white;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .progress-area.visible { display: block; }
+    .progress-bar-track {
+      height: 4px; background: #e0e0e0; border-radius: 2px;
+      overflow: hidden; margin-bottom: 8px;
+    }
+    .progress-bar-fill {
+      height: 100%; background: linear-gradient(90deg, #1a73e8, #8e24aa);
+      border-radius: 2px; transition: width 0.3s ease;
+      width: 0%;
+    }
+    .progress-stage {
+      font-size: 11px; color: #5f6368; margin-bottom: 4px;
+    }
+    .progress-log {
+      max-height: 120px; overflow-y: auto; font-size: 10px;
+      color: #80868b; font-family: 'Roboto Mono', monospace;
+      background: #f8f9fa; border-radius: 4px; padding: 6px;
+      margin-top: 6px;
+    }
+    .progress-log div { padding: 1px 0; }
+    .progress-log .stage-search { color: #1a73e8; }
+    .progress-log .stage-scrape { color: #e37400; }
+    .progress-log .stage-facts { color: #8e24aa; }
+    .progress-log .stage-summary { color: #34a853; }
+    .progress-log .stage-compare { color: #d93025; }
+    .progress-log .stage-synthesize { color: #1a73e8; font-weight: 600; }
+    .progress-log .stage-done { color: #34a853; font-weight: 600; }
+    .progress-log .stage-error { color: #d93025; font-weight: 600; }
+
+    /* Spinner animation */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #e0e0e0; border-top-color: #1a73e8; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Report area */
+    .report-area {
+      display: none; padding: 12px; background: white;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .report-area.visible { display: block; }
+    .report-content {
+      background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px;
+      padding: 12px; max-height: 400px; overflow-y: auto;
+      white-space: pre-wrap; font-size: 12px; line-height: 1.6;
+      border-left: 4px solid #8e24aa;
+    }
+    .report-meta {
+      font-size: 10px; color: #80868b; margin-top: 8px; padding: 6px;
+      background: #f8f9fa; border-radius: 4px;
+    }
+
+    .source-list { margin-top: 8px; }
+    .source-item {
+      font-size: 11px; padding: 4px 8px; background: #f8f9fa;
+      border-radius: 4px; margin-bottom: 3px; border-left: 3px solid #1a73e8;
+    }
+    .source-item a { color: #1a73e8; text-decoration: none; word-break: break-all; }
+    .source-item a:hover { text-decoration: underline; }
+    .source-label { font-weight: 600; color: #5f6368; }
+
+    .action-row { display: flex; gap: 6px; margin-top: 10px; }
+    .action-row .btn { flex: 1; }
+
+    .tips { font-size: 11px; color: #80868b; padding: 8px 12px; line-height: 1.5; }
+    .tips strong { color: #5f6368; }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body>
+
+  <div class="header">
+    <h2>🔬 Deep Research</h2>
+    <div class="subtitle">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Multi-source AI research engine</span>
+    </div>
+  </div>
+
+  <!-- Query Input -->
+  <div class="section">
+    <div class="section-title">Research Query</div>
+    <textarea id="queryInput" placeholder="Enter your research question...&#10;e.g., What are the latest advances in quantum computing?"></textarea>
+    <div style="margin-top:8px;">
+      <button class="btn btn-research" id="btnResearch" onclick="startResearch()">
+        🔬 Start Deep Research
+      </button>
+    </div>
+    <div class="tips" style="margin-top:6px;">
+      <strong>How it works:</strong> Searches Google → scrapes top 5 articles → extracts facts → compares sources → generates cited report. Takes 2-5 minutes.
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-area" id="progressArea">
+    <div class="section-title">
+      <span class="spinner" id="progressSpinner"></span>
+      <span id="progressTitle">Researching...</span>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progressBar"></div>
+    </div>
+    <div class="progress-stage" id="progressStage">Initializing...</div>
+    <div class="progress-log" id="progressLog"></div>
+  </div>
+
+  <!-- Report -->
+  <div class="report-area" id="reportArea">
+    <div class="section-title">Research Report</div>
+    <div class="report-content" id="reportContent"></div>
+
+    <div class="section-title" style="margin-top:12px;">Sources</div>
+    <div class="source-list" id="sourceList"></div>
+
+    <div class="report-meta" id="reportMeta"></div>
+
+    <div class="action-row">
+      <button class="btn btn-success" onclick="insertReport()">Insert into Document</button>
+      <button class="btn btn-secondary" onclick="copyReport()">Copy</button>
+    </div>
+    <div style="margin-top:6px;">
+      <button class="btn btn-secondary" onclick="resetUI()">New Research</button>
+    </div>
+  </div>
+
+<script>
+  const PROXY = 'http://localhost:9100';
+  let currentReport = '';
+  let researchRunning = false;
+
+  // Stage progress mapping (approximate)
+  const STAGE_PROGRESS = {
+    'init': 2,    'search': 8,   'extract': 12,
+    'scrape': 30, 'clean': 40,   'facts': 55,
+    'summary': 70,'compare': 82, 'synthesize': 92,
+    'done': 100,  'error': 100,
+  };
+
+  const STAGE_COLORS = {
+    'search': 'stage-search', 'extract': 'stage-search',
+    'scrape': 'stage-scrape', 'clean': 'stage-scrape',
+    'facts': 'stage-facts',   'summary': 'stage-summary',
+    'compare': 'stage-compare','synthesize': 'stage-synthesize',
+    'done': 'stage-done',     'error': 'stage-error',
+  };
+
+  // Check connection on load
+  $(function() {
+    $.ajax({ url: PROXY + '/api/status', method: 'GET', timeout: 5000 })
+      .done(function(resp) {
+        if (resp.status === 'connected') {
+          $('#statusDot').addClass('connected');
+          $('#statusText').text('Connected to Ollama');
+        } else {
+          $('#statusDot').addClass('disconnected');
+          $('#statusText').text('Ollama not running');
+        }
+      })
+      .fail(function() {
+        $('#statusDot').addClass('disconnected');
+        $('#statusText').text('Connector not running');
+      });
+  });
+
+  function startResearch() {
+    var query = $('#queryInput').val().trim();
+    if (!query) { alert('Please enter a research query.'); return; }
+    if (researchRunning) return;
+
+    researchRunning = true;
+    $('#btnResearch').prop('disabled', true).text('Researching...');
+    $('#progressArea').addClass('visible');
+    $('#reportArea').removeClass('visible');
+    $('#progressLog').html('');
+    $('#progressBar').css('width', '2%');
+    $('#progressStage').text('Starting search...');
+
+    // Use SSE streaming endpoint for live progress
+    var evtSource = null;
+    try {
+      var url = PROXY + '/api/research/stream?q=' + encodeURIComponent(query);
+      evtSource = new EventSource(url);
+
+      evtSource.addEventListener('progress', function(e) {
+        var data = JSON.parse(e.data);
+        addProgressLog(data.stage, data.detail);
+        var pct = STAGE_PROGRESS[data.stage] || 50;
+        $('#progressBar').css('width', pct + '%');
+        $('#progressStage').text(data.detail);
+      });
+
+      evtSource.addEventListener('complete', function(e) {
+        var data = JSON.parse(e.data);
+        evtSource.close();
+        showReport(data);
+      });
+
+      evtSource.addEventListener('error', function(e) {
+        // SSE error - could be connection closed by server (normal) or actual error
+        if (evtSource.readyState === EventSource.CLOSED) {
+          // Normal close after complete event
+          return;
+        }
+        evtSource.close();
+        // Fallback: try blocking POST
+        fallbackBlockingResearch(query);
+      });
+
+    } catch(err) {
+      // If EventSource not supported, fallback to POST
+      fallbackBlockingResearch(query);
+    }
+  }
+
+  function fallbackBlockingResearch(query) {
+    $('#progressStage').text('Using blocking mode (no live updates)...');
+    addProgressLog('init', 'Falling back to blocking request...');
+
+    $.ajax({
+      url: PROXY + '/api/research',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({ query: query }),
+      timeout: 600000 // 10 min timeout for full pipeline
+    }).done(function(resp) {
+      if (resp.progressLog) {
+        resp.progressLog.forEach(function(entry) {
+          var parts = entry.match(/\[(\w+)\] (.+)/);
+          if (parts) addProgressLog(parts[1], parts[2]);
+        });
+      }
+      showReport(resp);
+    }).fail(function(xhr) {
+      var errMsg = 'Research failed. ';
+      if (xhr.responseJSON && xhr.responseJSON.error) {
+        errMsg += xhr.responseJSON.error;
+      } else {
+        errMsg += 'Check that the connector and Ollama are running.';
+      }
+      addProgressLog('error', errMsg);
+      $('#progressSpinner').hide();
+      $('#progressTitle').text('Research Failed');
+      $('#progressStage').text(errMsg);
+      $('#progressBar').css('width', '100%');
+      researchRunning = false;
+      $('#btnResearch').prop('disabled', false).text('🔬 Start Deep Research');
+    });
+  }
+
+  function addProgressLog(stage, detail) {
+    var cls = STAGE_COLORS[stage] || '';
+    var el = $('<div>').addClass(cls).text(detail);
+    $('#progressLog').append(el);
+    // Auto-scroll to bottom
+    var logEl = document.getElementById('progressLog');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function showReport(data) {
+    currentReport = data.report || 'No report generated.';
+
+    // Update progress to done
+    $('#progressBar').css('width', '100%');
+    $('#progressSpinner').hide();
+    $('#progressTitle').text('✅ Research Complete');
+    $('#progressStage').text(
+      data.metadata
+        ? 'Completed in ' + (data.metadata.elapsedSeconds || '?') + 's using ' + (data.metadata.sourcesUsed || '?') + ' sources'
+        : 'Done'
+    );
+    addProgressLog('done', 'Report generated successfully');
+
+    // Show report
+    $('#reportContent').text(currentReport);
+    $('#reportArea').addClass('visible');
+
+    // Show sources
+    var sourceHtml = '';
+    if (data.sources && data.sources.length > 0) {
+      data.sources.forEach(function(s) {
+        var safeTitle = $('<span>').text(s.title || s.url).html();
+        var safeUrl = encodeURI(s.url || '');
+        sourceHtml += '<div class="source-item">' +
+          '<span class="source-label">[' + s.source + ']</span> ' +
+          '<a href="' + safeUrl + '" target="_blank">' + safeTitle + '</a>' +
+          ' <span style="color:#80868b;">(' + (s.wordCount || 0) + ' words, ' + (s.factsCount || 0) + ' facts)</span>' +
+          '</div>';
+      });
+    } else {
+      sourceHtml = '<div style="color:#80868b;font-size:11px;">No sources available</div>';
+    }
+    $('#sourceList').html(sourceHtml);
+
+    // Meta
+    if (data.metadata) {
+      var safeQuery = $('<span>').text(data.metadata.query || '').html();
+      $('#reportMeta').html(
+        'Query: ' + safeQuery + '<br>' +
+        'Time: ' + (data.metadata.elapsedSeconds || '?') + 's | ' +
+        'Sources: ' + (data.metadata.sourcesUsed || 0) + ' | ' +
+        (data.metadata.errors && data.metadata.errors.length > 0
+          ? 'Warnings: ' + data.metadata.errors.length
+          : 'No errors')
+      );
+    }
+
+    researchRunning = false;
+    $('#btnResearch').prop('disabled', false).text('🔬 Start Deep Research');
+  }
+
+  function insertReport() {
+    if (!currentReport) return;
+    google.script.run.insertAtCursor(currentReport);
+  }
+
+  function copyReport() {
+    if (!currentReport) return;
+    // Copy to clipboard using textarea trick
+    var ta = document.createElement('textarea');
+    ta.value = currentReport;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('Report copied to clipboard!');
+  }
+
+  function resetUI() {
+    $('#queryInput').val('');
+    $('#progressArea').removeClass('visible');
+    $('#reportArea').removeClass('visible');
+    $('#progressLog').html('');
+    $('#progressBar').css('width', '0%');
+    $('#progressSpinner').show();
+    $('#progressTitle').text('Researching...');
+    currentReport = '';
+  }
+
+  // Allow Ctrl+Enter to start research
+  $('#queryInput').on('keydown', function(e) {
+    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); startResearch(); }
+  });
+</script>
+
+</body>
+</html>
