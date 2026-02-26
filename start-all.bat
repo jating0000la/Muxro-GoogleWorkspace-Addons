@@ -96,8 +96,12 @@ echo.
 echo [5/6] Pulling AI models (skip if already downloaded)...
 echo.
 
-echo    Pulling gemma3:1b (default model)...
+echo    Pulling gemma3:1b (default AI model)...
 ollama pull gemma3:1b
+echo.
+
+echo    Pulling qwen3:0.6b (Deep Research Engine model)...
+ollama pull qwen3:0.6b
 echo.
 
 echo    Installed models:
@@ -131,7 +135,7 @@ echo ============================================================
 echo.
 echo   Ollama       : http://localhost:11434
 echo   Proxy Server : http://localhost:9100
-echo   Model        : gemma3:1b (+ any models you have installed)
+echo   Models       : gemma3:1b (general)  qwen3:0.6b (Deep Research)
 echo.
 echo   Next steps:
 echo     1. Copy the Google Apps Script files into your
@@ -139,6 +143,7 @@ echo        Sheets / Docs / Slides script editor
 echo     2. Open the addon sidebar from the menu
 echo     3. Select your preferred LLM model in the sidebar
 echo     4. Use AI features - they connect through the proxy
+echo     5. For Deep Research: Muxro AI menu -> Deep Research
 echo.
 echo   Press Ctrl+C to stop the proxy server.
 echo ============================================================
