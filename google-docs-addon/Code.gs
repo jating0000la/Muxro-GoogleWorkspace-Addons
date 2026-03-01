@@ -99,7 +99,30 @@ function getDocumentText() {
   return { text: body.getText(), title: doc.getName() };
 }
 
-// ─── Insert Text at Cursor ──────────────────────────────────────────────────
+// ─── Detect Markdown Content ─────────────────────────────────────────────────
+/**
+ * Returns true if text appears to contain markdown syntax.
+ */
+function hasMarkdown_(text) {
+  if (!text) return false;
+  // Check for common markdown patterns
+  return /^#{1,6}\s/m.test(text) ||           // headings
+         /^[-*+]\s+/m.test(text) ||           // bullet lists
+         /^\d+\.\s+/m.test(text) ||           // numbered lists
+         /\*\*[^*]+\*\*/m.test(text) ||       // bold
+         /\*[^*]+\*/m.test(text) ||            // italic
+         /__[^_]+__/m.test(text) ||             // bold (underscore)
+         /_[^_]+_/m.test(text) ||               // italic (underscore)
+         /^```/m.test(text) ||                  // code blocks
+         /^>{1}\s/m.test(text) ||              // blockquotes
+         /^[-*_]{3,}$/m.test(text) ||           // horizontal rules
+         /~~[^~]+~~/m.test(text) ||             // strikethrough
+         /`[^`]+`/m.test(text) ||               // inline code
+         /\[.+\]\(.+\)/m.test(text) ||        // links
+         /^\|.+\|$/m.test(text);               // tables
+}
+
+// ─── Insert Text at Cursor (plain) ──────────────────────────────────────────
 function insertAtCursor(text) {
   const doc = DocumentApp.getActiveDocument();
   const cursor = doc.getCursor();
@@ -107,10 +130,114 @@ function insertAtCursor(text) {
   if (cursor) {
     cursor.insertText(text);
   } else {
-    // If no cursor, append to end
     const body = doc.getBody();
     body.appendParagraph(text);
   }
+}
+
+// ─── Insert Formatted Markdown at Cursor ────────────────────────────────────
+/**
+ * Smart insert: detects markdown and inserts as formatted Google Docs elements.
+ * Falls back to plain text insert if no markdown detected.
+ */
+function insertFormattedAtCursor(text) {
+  if (!hasMarkdown_(text)) {
+    insertAtCursor(text);
+    return;
+  }
+  const doc = DocumentApp.getActiveDocument();
+  const body = doc.getBody();
+  let insertIndex = body.getNumChildren();
+  const cursor = doc.getCursor();
+  if (cursor) {
+    let parent = cursor.getElement();
+    while (parent && parent.getParent() && parent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+      parent = parent.getParent();
+    }
+    if (parent && parent.getParent()) {
+      insertIndex = body.getChildIndex(parent) + 1;
+    }
+  }
+  insertMarkdownAtIndex_(body, text, insertIndex);
+}
+
+// ─── Replace Selection with Formatted Markdown ──────────────────────────────
+/**
+ * Replaces the current selection with formatted markdown content.
+ * If text has markdown syntax, removes selected elements and inserts
+ * properly formatted headings, lists, bold, etc.
+ * Falls back to plain text if no markdown detected.
+ */
+function replaceSelectedWithFormatted(markdownText) {
+  if (!hasMarkdown_(markdownText)) {
+    replaceSelectedText(markdownText);
+    return;
+  }
+  const doc = DocumentApp.getActiveDocument();
+  const selection = doc.getSelection();
+  if (!selection) {
+    insertFormattedAtCursor(markdownText);
+    return;
+  }
+  const body = doc.getBody();
+  const elements = selection.getRangeElements();
+
+  // Find body-level insert index from the first selected element
+  let firstParent = elements[0].getElement();
+  while (firstParent.getParent() && firstParent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+    firstParent = firstParent.getParent();
+  }
+  const insertIndex = body.getChildIndex(firstParent);
+
+  // Collect unique body-level parents to remove
+  const parentsToRemove = [];
+  const seen = {};
+  for (let i = 0; i < elements.length; i++) {
+    let parent = elements[i].getElement();
+    while (parent.getParent() && parent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+      parent = parent.getParent();
+    }
+    const idx = body.getChildIndex(parent);
+    if (!seen[idx]) {
+      seen[idx] = true;
+      parentsToRemove.push(parent);
+    }
+  }
+
+  // Insert formatted markdown first
+  insertMarkdownAtIndex_(body, markdownText, insertIndex);
+
+  // Remove the original selected elements
+  for (let i = parentsToRemove.length - 1; i >= 0; i--) {
+    try { body.removeChild(parentsToRemove[i]); } catch (e) {}
+  }
+}
+
+// ─── Insert Formatted Markdown After Selection ──────────────────────────────
+/**
+ * Inserts formatted markdown after the current selection.
+ * Falls back to plain paragraph if no markdown detected.
+ */
+function insertFormattedAfterSelection(markdownText) {
+  if (!hasMarkdown_(markdownText)) {
+    appendAfterSelection(markdownText);
+    return;
+  }
+  const doc = DocumentApp.getActiveDocument();
+  const selection = doc.getSelection();
+  if (!selection) {
+    insertFormattedAtCursor(markdownText);
+    return;
+  }
+  const body = doc.getBody();
+  const elements = selection.getRangeElements();
+  const lastElement = elements[elements.length - 1].getElement();
+  let parent = lastElement;
+  while (parent.getParent() && parent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+    parent = parent.getParent();
+  }
+  const insertIndex = body.getChildIndex(parent) + 1;
+  insertMarkdownAtIndex_(body, markdownText, insertIndex);
 }
 
 // ─── Insert Markdown Report as Formatted Doc ────────────────────────────────
@@ -346,12 +473,16 @@ function insertMarkdownAtIndex_(body, markdown, startIndex) {
   let inCodeBlock = false;
   let codeBlockLines = [];
   let codeBlockLang = '';
+  let inTable = false;
+  let tableRows = [];
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
 
     // --- Code block fences (```) ---
     if (/^\s*```/.test(raw)) {
+      // Flush any pending table
+      if (inTable) { idx = flushTable_(body, tableRows, idx); inTable = false; tableRows = []; }
       if (!inCodeBlock) {
         inCodeBlock = true;
         codeBlockLang = raw.replace(/^\s*```/, '').trim();
@@ -359,13 +490,17 @@ function insertMarkdownAtIndex_(body, markdown, startIndex) {
         continue;
       } else {
         // End of code block — insert as a single monospace paragraph
-        var codePara = body.insertParagraph(idx, codeBlockLines.join('\n'));
+        var codeContent = codeBlockLines.join('\n');
+        if (codeContent === '') codeContent = ' '; // avoid empty text error
+        var codePara = body.insertParagraph(idx, codeContent);
         codePara.setHeading(DocumentApp.ParagraphHeading.NORMAL);
         var codeText = codePara.editAsText();
         codeText.setFontFamily('Courier New');
         codeText.setFontSize(10);
         codeText.setBackgroundColor('#f5f5f5');
+        codeText.setForegroundColor('#333333');
         codePara.setLeftIndent(18);
+        codePara.setRightIndent(12);
         idx++;
         inCodeBlock = false;
         codeBlockLines = [];
@@ -375,6 +510,29 @@ function insertMarkdownAtIndex_(body, markdown, startIndex) {
     if (inCodeBlock) {
       codeBlockLines.push(raw);
       continue;
+    }
+
+    // --- Markdown table detection (| col | col |) ---
+    var tableMatch = raw.match(/^\s*\|(.+)\|\s*$/);
+    if (tableMatch) {
+      // Check if it's a separator row (|---|---| or |:---:|)
+      var isSep = /^[\s|:\-]+$/.test(raw);
+      if (!inTable) {
+        inTable = true;
+        tableRows = [];
+      }
+      if (!isSep) {
+        // Parse cells
+        var cells = tableMatch[1].split('|').map(function(c) { return c.trim(); });
+        tableRows.push(cells);
+      }
+      continue;
+    } else if (inTable) {
+      // End of table — flush
+      idx = flushTable_(body, tableRows, idx);
+      inTable = false;
+      tableRows = [];
+      // Fall through to process current line normally
     }
 
     // Skip empty lines
@@ -413,15 +571,34 @@ function insertMarkdownAtIndex_(body, markdown, startIndex) {
       continue;
     }
 
-    // --- Blockquote (>) ---
-    var bqMatch = raw.match(/^>\s?(.*)/);
+    // --- Blockquote (>) with nesting support ---
+    var bqMatch = raw.match(/^(>+)\s?(.*)/);
     if (bqMatch) {
+      var bqLevel = bqMatch[1].length;
       var para = body.insertParagraph(idx, '');
       para.setHeading(DocumentApp.ParagraphHeading.NORMAL);
-      para.setLeftIndent(36);
-      applyRichInlineFormatting_(para, bqMatch[1]);
+      para.setLeftIndent(24 * bqLevel);
+      applyRichInlineFormatting_(para, bqMatch[2] || '');
       para.editAsText().setItalic(true);
       para.editAsText().setForegroundColor('#5f6368');
+      idx++;
+      continue;
+    }
+
+    // --- Task list (- [ ] or - [x]) ---
+    var taskMatch = raw.match(/^([\s]*)[-*+]\s+\[([ xX])\]\s+(.+)/);
+    if (taskMatch) {
+      var isChecked = (taskMatch[2].toLowerCase() === 'x');
+      var item = body.insertListItem(idx, '');
+      item.setGlyphType(DocumentApp.GlyphType.BULLET);
+      var taskText = (isChecked ? '☑ ' : '☐ ') + taskMatch[3];
+      applyRichInlineFormatting_(item, taskText);
+      if (isChecked) {
+        item.editAsText().setStrikethrough(2, 2 + taskMatch[3].length - 1, true);
+        item.editAsText().setForegroundColor(2, 2 + taskMatch[3].length - 1, '#9aa0a6');
+      }
+      var indent = taskMatch[1].length;
+      if (indent >= 2) item.setNestingLevel(Math.min(Math.floor(indent / 2), 3));
       idx++;
       continue;
     }
@@ -457,12 +634,19 @@ function insertMarkdownAtIndex_(body, markdown, startIndex) {
     idx++;
   }
 
+  // Flush any pending table at end of text
+  if (inTable && tableRows.length > 0) {
+    idx = flushTable_(body, tableRows, idx);
+  }
+
   // Handle unclosed code block
   if (inCodeBlock && codeBlockLines.length > 0) {
-    var codePara = body.insertParagraph(idx, codeBlockLines.join('\n'));
+    var codeContent = codeBlockLines.join('\n') || ' ';
+    var codePara = body.insertParagraph(idx, codeContent);
     codePara.editAsText().setFontFamily('Courier New');
     codePara.editAsText().setFontSize(10);
     codePara.editAsText().setBackgroundColor('#f5f5f5');
+    codePara.editAsText().setForegroundColor('#333333');
     codePara.setLeftIndent(18);
     idx++;
   }
@@ -471,13 +655,45 @@ function insertMarkdownAtIndex_(body, markdown, startIndex) {
 }
 
 /**
+ * Flush collected markdown table rows as a Google Docs table.
+ * First row is treated as header (bold).
+ */
+function flushTable_(body, rows, idx) {
+  if (!rows || rows.length === 0) return idx;
+  var numCols = rows[0].length;
+  var numRows = rows.length;
+
+  var table = body.insertTable(idx, []);
+  // Remove the default empty row that insertTable may create
+  while (table.getNumRows() > 0) table.removeRow(0);
+
+  for (var r = 0; r < numRows; r++) {
+    var row = table.appendTableRow();
+    for (var c = 0; c < numCols; c++) {
+      var cellText = (rows[r][c] || '').trim();
+      var cell = row.appendTableCell('');
+      if (r === 0) {
+        // Header row: bold
+        applyRichInlineFormatting_(cell.getChild(0).asParagraph(), cellText);
+        cell.getChild(0).asParagraph().editAsText().setBold(true);
+        cell.setBackgroundColor('#f1f3f4');
+      } else {
+        applyRichInlineFormatting_(cell.getChild(0).asParagraph(), cellText);
+      }
+    }
+  }
+  return idx + 1;
+}
+
+/**
  * Enhanced inline formatting: supports **bold**, *italic*, ***bold-italic***,
  * ~~strikethrough~~, `inline code`, and [links](url).
  */
 function applyRichInlineFormatting_(element, text) {
   var segments = [];
-  // Combined regex: bold/italic (***/**/*), strikethrough (~~), inline code (`), links [text](url)
-  var regex = /(\*{1,3})((?:(?!\1).)+?)\1|~~(.+?)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
+  // Combined regex: handles */**/***, __/__bold__, ~~strike~~, `code`, [link](url), ![img](url)
+  // Order matters: longer patterns first to avoid partial matches
+  var regex = /(\*{1,3})((?:(?!\1).)+?)\1|(__)((?:(?!__).)+?)__|(_)((?:(?!_).)+?)_|~~(.+?)~~|`([^`]+)`|!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)/g;
   var lastIndex = 0;
   var match;
 
@@ -488,7 +704,7 @@ function applyRichInlineFormatting_(element, text) {
     }
 
     if (match[1]) {
-      // Bold / Italic / Bold-Italic
+      // Asterisk bold/italic: *, **, ***
       var stars = match[1].length;
       segments.push({
         text: match[2],
@@ -496,15 +712,25 @@ function applyRichInlineFormatting_(element, text) {
         italic: stars === 1 || stars === 3,
         strike: false, code: false, link: null
       });
-    } else if (match[3] !== undefined) {
-      // Strikethrough
-      segments.push({ text: match[3], bold: false, italic: false, strike: true, code: false, link: null });
-    } else if (match[4] !== undefined) {
-      // Inline code
-      segments.push({ text: match[4], bold: false, italic: false, strike: false, code: true, link: null });
-    } else if (match[5] !== undefined) {
-      // Link
-      segments.push({ text: match[5], bold: false, italic: false, strike: false, code: false, link: match[6] });
+    } else if (match[3] !== undefined && match[3] === '__') {
+      // __bold__ (underscore double)
+      segments.push({ text: match[4], bold: true, italic: false, strike: false, code: false, link: null });
+    } else if (match[5] !== undefined && match[5] === '_') {
+      // _italic_ (underscore single)
+      segments.push({ text: match[6], bold: false, italic: true, strike: false, code: false, link: null });
+    } else if (match[7] !== undefined) {
+      // ~~Strikethrough~~
+      segments.push({ text: match[7], bold: false, italic: false, strike: true, code: false, link: null });
+    } else if (match[8] !== undefined) {
+      // `inline code`
+      segments.push({ text: match[8], bold: false, italic: false, strike: false, code: true, link: null });
+    } else if (match[9] !== undefined) {
+      // ![alt](url) — image: show as linked text since Docs can't inline-insert from URL in Apps Script
+      var altText = match[9] || 'Image';
+      segments.push({ text: '🖼 ' + altText, bold: false, italic: false, strike: false, code: false, link: match[10] });
+    } else if (match[11] !== undefined) {
+      // [text](url) — link
+      segments.push({ text: match[11], bold: false, italic: false, strike: false, code: false, link: match[12] });
     }
 
     lastIndex = regex.lastIndex;
@@ -516,15 +742,16 @@ function applyRichInlineFormatting_(element, text) {
 
   // Build plain string
   var fullText = segments.map(function(s) { return s.text; }).join('');
+  if (!fullText) fullText = ' '; // Avoid empty text error
   element.setText(fullText);
 
-  // Apply formatting
+  // Apply formatting ranges
   var textEl = element.editAsText();
   var offset = 0;
   for (var i = 0; i < segments.length; i++) {
     var seg = segments[i];
     var end = offset + seg.text.length - 1;
-    if (end >= offset) {
+    if (end >= offset && seg.text.length > 0) {
       if (seg.bold)   textEl.setBold(offset, end, true);
       if (seg.italic) textEl.setItalic(offset, end, true);
       if (seg.strike) textEl.setStrikethrough(offset, end, true);

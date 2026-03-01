@@ -190,8 +190,8 @@
     <div class="section" style="padding:8px 12px;">
       <div class="response-area" id="editResponse"></div>
       <div class="action-row" id="editActions" style="display:none;">
-        <button class="btn btn-success" onclick="replaceText()">Replace Selection</button>
-        <button class="btn btn-secondary" onclick="insertText()">Insert After</button>
+        <button class="btn btn-success" onclick="replaceText()">Replace (Formatted)</button>
+        <button class="btn btn-secondary" onclick="insertText()">Insert After (Formatted)</button>
       </div>
     </div>
   </div>
@@ -386,16 +386,22 @@
 
   function replaceText() {
     if (!lastResult) return;
-    google.script.run.replaceSelectedText(lastResult);
-    $('#editActions').hide();
-    setColoredResponse('editResponse', lastResult + '\n\n✅ Replaced!', 'success');
+    google.script.run.withSuccessHandler(function() {
+      setColoredResponse('editResponse', lastResult + '\n\n✅ Replaced with formatting!', lastOperationColor);
+      $('#editActions').hide();
+    }).withFailureHandler(function(err) {
+      setColoredResponse('editResponse', 'Error replacing: ' + (err.message || err), 'error');
+    }).replaceSelectedWithFormatted(lastResult);
   }
 
   function insertText() {
     if (!lastResult) return;
-    google.script.run.appendAfterSelection(lastResult);
-    $('#editActions').hide();
-    setColoredResponse('editResponse', lastResult + '\n\n✅ Inserted!', 'success');
+    google.script.run.withSuccessHandler(function() {
+      setColoredResponse('editResponse', lastResult + '\n\n✅ Inserted with formatting!', lastOperationColor);
+      $('#editActions').hide();
+    }).withFailureHandler(function(err) {
+      setColoredResponse('editResponse', 'Error inserting: ' + (err.message || err), 'error');
+    }).insertFormattedAfterSelection(lastResult);
   }
 
   // ─── Convert Markdown ──────────────────────────────────────────────
@@ -446,9 +452,12 @@
 
   function insertGenerated() {
     if (!lastGenerated) return;
-    google.script.run.insertAtCursor(lastGenerated);
-    $('#genActions').hide();
-    setColoredResponse('genResponse', lastGenerated + '\n\n✅ Inserted into document!', 'success');
+    google.script.run.withSuccessHandler(function() {
+      setColoredResponse('genResponse', lastGenerated + '\n\n✅ Inserted with formatting!', 'generate');
+      $('#genActions').hide();
+    }).withFailureHandler(function(err) {
+      setColoredResponse('genResponse', 'Error: ' + (err.message || err), 'error');
+    }).insertFormattedAtCursor(lastGenerated);
   }
 
   // ─── Chat ─────────────────────────────────────────────────────────
