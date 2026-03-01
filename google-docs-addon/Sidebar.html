@@ -70,6 +70,9 @@
     /* Custom = Amber */
     .response-area.color-custom { border-left-color: #f9a825; background: #fff8e1; }
     .response-area.color-custom .color-tag { background: #f9a825; color: #333; }
+    /* Markdown = Blue Grey */
+    .response-area.color-markdown { border-left-color: #546e7a; background: #eceff1; }
+    .response-area.color-markdown .color-tag { background: #546e7a; color: white; }
     /* Chat = Blue */
     .response-area.color-chat { border-left-color: #1565c0; background: #e3f2fd; }
     .response-area.color-chat .color-tag { background: #1565c0; color: white; }
@@ -125,6 +128,7 @@
     <span class="legend-item"><span class="legend-dot" style="background:#fa7b17;"></span>Bullets</span>
     <span class="legend-item"><span class="legend-dot" style="background:#0097a7;"></span>Translate</span>
     <span class="legend-item"><span class="legend-dot" style="background:#9334e6;"></span>Generate</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#546e7a;"></span>Markdown</span>
   </div>
 
   <!-- Global Model Selector -->
@@ -156,6 +160,9 @@
       <div class="btn-group" style="margin-top:6px;">
         <button class="btn btn-secondary" onclick="processText('bullet_points')">📌 Bullets</button>
         <button class="btn btn-secondary" onclick="processText('outline')">📑 Outline</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px;">
+        <button class="btn btn-secondary" onclick="convertMarkdown()" style="flex:1;background:linear-gradient(135deg,#f1f3f4,#e8eaf6);border:1px solid #c5cae9;">📝 Convert Markdown</button>
       </div>
       
       <div style="margin-top:10px;">
@@ -270,6 +277,7 @@
     outline:      { cls: 'color-outline',    label: 'OUTLINE' },
     translate:    { cls: 'color-translate',   label: 'TRANSLATION' },
     custom:       { cls: 'color-custom',     label: 'CUSTOM' },
+    markdown:     { cls: 'color-markdown',   label: 'MARKDOWN' },
     generate:     { cls: 'color-generate',   label: 'GENERATED' },
     chat:         { cls: 'color-chat',       label: 'CHAT' },
     error:        { cls: 'color-error',      label: 'ERROR' }
@@ -388,6 +396,21 @@
     google.script.run.appendAfterSelection(lastResult);
     $('#editActions').hide();
     setColoredResponse('editResponse', lastResult + '\n\n✅ Inserted!', 'success');
+  }
+
+  // ─── Convert Markdown ──────────────────────────────────────────────
+  function convertMarkdown() {
+    $('#editLoading').addClass('visible');
+    $('#editResponse').removeClass('visible');
+    $('#editActions').hide();
+
+    google.script.run.withSuccessHandler(function() {
+      $('#editLoading').removeClass('visible');
+      setColoredResponse('editResponse', 'Markdown converted to formatted text successfully!', 'markdown');
+    }).withFailureHandler(function(err) {
+      $('#editLoading').removeClass('visible');
+      setColoredResponse('editResponse', 'Error: ' + (err.message || err), 'error');
+    }).convertMarkdownSelection();
   }
 
   // ─── Generate Content ──────────────────────────────────────────────

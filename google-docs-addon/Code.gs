@@ -28,7 +28,8 @@ function onOpen() {
       .addItem('Proofread', 'proofreadSelected')
       .addItem('Make Formal', 'makeFormal')
       .addItem('Make Casual', 'makeCasual')
-      .addItem('To Bullet Points', 'toBulletPoints'))
+      .addItem('To Bullet Points', 'toBulletPoints')
+      .addItem('Convert Markdown to Formatted', 'convertMarkdownSelection'))
     .addSeparator()
     .addSubMenu(ui.createMenu('Generate')
       .addItem('Article', 'generateArticle')
@@ -145,18 +146,24 @@ function insertMarkdownReport(markdown) {
     // Skip empty lines (they act as spacing — we get natural spacing from paragraphs)
     if (raw.trim() === '') continue;
 
-    // --- Horizontal rule ---
-    if (/^(\-{3,}|\*{3,}|_{3,})$/.test(raw.trim())) {
-      body.insertHorizontalRule(idx);
+    // --- Horizontal rule (---, ***, ___, - - -, etc.) ---
+    var trimmed = raw.trim();
+    if (/^[-]{3,}$/.test(trimmed) || /^[*]{3,}$/.test(trimmed) || /^[_]{3,}$/.test(trimmed) ||
+        /^(- ){2,}-$/.test(trimmed) || /^(\* ){2,}\*$/.test(trimmed) || /^(_ ){2,}_$/.test(trimmed)) {
+      var hrPara = body.insertParagraph(idx, '');
+      hrPara.appendHorizontalRule();
+      if (hrPara.getNumChildren() > 1) {
+        try { hrPara.getChild(0).removeFromParent(); } catch(e) {}
+      }
       idx++;
       continue;
     }
 
-    // --- Headings ---
-    var headingMatch = raw.match(/^(#{1,6})\s+(.+)/);
+    // --- Headings (### text, ###text, ### text ###) ---
+    var headingMatch = raw.match(/^(#{1,6})\s*(.*?)\s*#*\s*$/);
     if (headingMatch) {
       var level = headingMatch[1].length;
-      var headingText = headingMatch[2].trim();
+      var headingText = (headingMatch[2] || '').trim() || 'Heading ' + level;
       var para = body.insertParagraph(idx, '');
       var headingMap = {
         1: DocumentApp.ParagraphHeading.HEADING1,
@@ -247,6 +254,290 @@ function applyInlineFormatting_(element, text) {
     if (end >= offset) {
       if (seg.bold) textEl.setBold(offset, end, true);
       if (seg.italic) textEl.setItalic(offset, end, true);
+    }
+    offset = end + 1;
+  }
+}
+
+// ─── Convert Markdown Selection to Formatted Doc ───────────────────────────
+/**
+ * Takes the currently selected text (assumed to be markdown), removes the
+ * selection, and inserts properly formatted Google Docs elements in its place.
+ * Supports: headings (#-######), bold (**), italic (*), bold-italic (***),
+ * strikethrough (~~), inline code (`), code blocks (```), blockquotes (>),
+ * bullet lists (- * +), numbered lists (1.), horizontal rules (---), and links.
+ */
+function convertMarkdownSelection() {
+  const doc = DocumentApp.getActiveDocument();
+  const selection = doc.getSelection();
+
+  if (!selection) {
+    DocumentApp.getUi().alert('Please select the markdown text you want to convert.');
+    return;
+  }
+
+  // Gather the full selected text
+  const elements = selection.getRangeElements();
+  let markdownText = '';
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    if (el.getElement().editAsText) {
+      const textEl = el.getElement().editAsText();
+      if (el.isPartial()) {
+        markdownText += textEl.getText().substring(el.getStartOffset(), el.getEndOffsetInclusive() + 1);
+      } else {
+        markdownText += textEl.getText();
+      }
+      if (i < elements.length - 1) markdownText += '\n';
+    }
+  }
+
+  if (!markdownText.trim()) {
+    DocumentApp.getUi().alert('Selected text is empty.');
+    return;
+  }
+
+  const body = doc.getBody();
+
+  // Find the body-level index of the first selected element
+  let firstParent = elements[0].getElement();
+  while (firstParent.getParent() && firstParent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+    firstParent = firstParent.getParent();
+  }
+  const insertIndex = body.getChildIndex(firstParent);
+
+  // Remove selected body-level elements (collect unique parents first)
+  const parentsToRemove = [];
+  const seen = {};
+  for (let i = 0; i < elements.length; i++) {
+    let parent = elements[i].getElement();
+    while (parent.getParent() && parent.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+      parent = parent.getParent();
+    }
+    const idx = body.getChildIndex(parent);
+    if (!seen[idx]) {
+      seen[idx] = true;
+      parentsToRemove.push(parent);
+    }
+  }
+
+  // Insert formatted markdown at the insertion point first, then remove old elements
+  const newIdx = insertMarkdownAtIndex_(body, markdownText, insertIndex);
+
+  // Remove the original elements (they have shifted by the number of inserted elements)
+  const inserted = newIdx - insertIndex;
+  for (let i = parentsToRemove.length - 1; i >= 0; i--) {
+    // Recalculate since indices shift
+    try {
+      body.removeChild(parentsToRemove[i]);
+    } catch (e) {
+      // Element may already have been removed if partial overlap
+    }
+  }
+}
+
+/**
+ * Insert parsed markdown as formatted elements at a specific body index.
+ * Returns the next index after all inserted elements.
+ */
+function insertMarkdownAtIndex_(body, markdown, startIndex) {
+  const lines = markdown.split('\n');
+  let idx = startIndex;
+  let inCodeBlock = false;
+  let codeBlockLines = [];
+  let codeBlockLang = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+
+    // --- Code block fences (```) ---
+    if (/^\s*```/.test(raw)) {
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeBlockLang = raw.replace(/^\s*```/, '').trim();
+        codeBlockLines = [];
+        continue;
+      } else {
+        // End of code block — insert as a single monospace paragraph
+        var codePara = body.insertParagraph(idx, codeBlockLines.join('\n'));
+        codePara.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+        var codeText = codePara.editAsText();
+        codeText.setFontFamily('Courier New');
+        codeText.setFontSize(10);
+        codeText.setBackgroundColor('#f5f5f5');
+        codePara.setLeftIndent(18);
+        idx++;
+        inCodeBlock = false;
+        codeBlockLines = [];
+        continue;
+      }
+    }
+    if (inCodeBlock) {
+      codeBlockLines.push(raw);
+      continue;
+    }
+
+    // Skip empty lines
+    if (raw.trim() === '') continue;
+
+    // --- Horizontal rule (---, ***, ___, - - -, etc.) ---
+    var trimmed = raw.trim();
+    if (/^[-]{3,}$/.test(trimmed) || /^[*]{3,}$/.test(trimmed) || /^[_]{3,}$/.test(trimmed) ||
+        /^(- ){2,}-$/.test(trimmed) || /^(\* ){2,}\*$/.test(trimmed) || /^(_ ){2,}_$/.test(trimmed)) {
+      var hrPara = body.insertParagraph(idx, '');
+      hrPara.appendHorizontalRule();
+      if (hrPara.getNumChildren() > 1) {
+        try { hrPara.getChild(0).removeFromParent(); } catch(e) {}
+      }
+      idx++;
+      continue;
+    }
+
+    // --- Headings (### text, ###text, ### text ###) ---
+    var headingMatch = raw.match(/^(#{1,6})\s*(.*?)\s*#*\s*$/);
+    if (headingMatch) {
+      var level = headingMatch[1].length;
+      var headingText = (headingMatch[2] || '').trim() || 'Heading ' + level;
+      var para = body.insertParagraph(idx, '');
+      var headingMap = {
+        1: DocumentApp.ParagraphHeading.HEADING1,
+        2: DocumentApp.ParagraphHeading.HEADING2,
+        3: DocumentApp.ParagraphHeading.HEADING3,
+        4: DocumentApp.ParagraphHeading.HEADING4,
+        5: DocumentApp.ParagraphHeading.HEADING5,
+        6: DocumentApp.ParagraphHeading.HEADING6,
+      };
+      para.setHeading(headingMap[level] || DocumentApp.ParagraphHeading.HEADING3);
+      applyRichInlineFormatting_(para, headingText);
+      idx++;
+      continue;
+    }
+
+    // --- Blockquote (>) ---
+    var bqMatch = raw.match(/^>\s?(.*)/);
+    if (bqMatch) {
+      var para = body.insertParagraph(idx, '');
+      para.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+      para.setLeftIndent(36);
+      applyRichInlineFormatting_(para, bqMatch[1]);
+      para.editAsText().setItalic(true);
+      para.editAsText().setForegroundColor('#5f6368');
+      idx++;
+      continue;
+    }
+
+    // --- Unordered list (-, *, +) ---
+    var ulMatch = raw.match(/^([\s]*)([-*+])\s+(.+)/);
+    if (ulMatch) {
+      var item = body.insertListItem(idx, '');
+      item.setGlyphType(DocumentApp.GlyphType.BULLET);
+      applyRichInlineFormatting_(item, ulMatch[3]);
+      var indent = ulMatch[1].length;
+      if (indent >= 2) item.setNestingLevel(Math.min(Math.floor(indent / 2), 3));
+      idx++;
+      continue;
+    }
+
+    // --- Ordered list (1. 2. etc.) ---
+    var olMatch = raw.match(/^([\s]*)\d+\.\s+(.+)/);
+    if (olMatch) {
+      var item = body.insertListItem(idx, '');
+      item.setGlyphType(DocumentApp.GlyphType.NUMBER);
+      applyRichInlineFormatting_(item, olMatch[2]);
+      var indent = olMatch[1].length;
+      if (indent >= 2) item.setNestingLevel(Math.min(Math.floor(indent / 2), 3));
+      idx++;
+      continue;
+    }
+
+    // --- Regular paragraph ---
+    var para = body.insertParagraph(idx, '');
+    para.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+    applyRichInlineFormatting_(para, raw);
+    idx++;
+  }
+
+  // Handle unclosed code block
+  if (inCodeBlock && codeBlockLines.length > 0) {
+    var codePara = body.insertParagraph(idx, codeBlockLines.join('\n'));
+    codePara.editAsText().setFontFamily('Courier New');
+    codePara.editAsText().setFontSize(10);
+    codePara.editAsText().setBackgroundColor('#f5f5f5');
+    codePara.setLeftIndent(18);
+    idx++;
+  }
+
+  return idx;
+}
+
+/**
+ * Enhanced inline formatting: supports **bold**, *italic*, ***bold-italic***,
+ * ~~strikethrough~~, `inline code`, and [links](url).
+ */
+function applyRichInlineFormatting_(element, text) {
+  var segments = [];
+  // Combined regex: bold/italic (***/**/*), strikethrough (~~), inline code (`), links [text](url)
+  var regex = /(\*{1,3})((?:(?!\1).)+?)\1|~~(.+?)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
+  var lastIndex = 0;
+  var match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Text before this match
+    if (match.index > lastIndex) {
+      segments.push({ text: text.substring(lastIndex, match.index), bold: false, italic: false, strike: false, code: false, link: null });
+    }
+
+    if (match[1]) {
+      // Bold / Italic / Bold-Italic
+      var stars = match[1].length;
+      segments.push({
+        text: match[2],
+        bold: stars >= 2,
+        italic: stars === 1 || stars === 3,
+        strike: false, code: false, link: null
+      });
+    } else if (match[3] !== undefined) {
+      // Strikethrough
+      segments.push({ text: match[3], bold: false, italic: false, strike: true, code: false, link: null });
+    } else if (match[4] !== undefined) {
+      // Inline code
+      segments.push({ text: match[4], bold: false, italic: false, strike: false, code: true, link: null });
+    } else if (match[5] !== undefined) {
+      // Link
+      segments.push({ text: match[5], bold: false, italic: false, strike: false, code: false, link: match[6] });
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+  // Remaining text
+  if (lastIndex < text.length) {
+    segments.push({ text: text.substring(lastIndex), bold: false, italic: false, strike: false, code: false, link: null });
+  }
+
+  // Build plain string
+  var fullText = segments.map(function(s) { return s.text; }).join('');
+  element.setText(fullText);
+
+  // Apply formatting
+  var textEl = element.editAsText();
+  var offset = 0;
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i];
+    var end = offset + seg.text.length - 1;
+    if (end >= offset) {
+      if (seg.bold)   textEl.setBold(offset, end, true);
+      if (seg.italic) textEl.setItalic(offset, end, true);
+      if (seg.strike) textEl.setStrikethrough(offset, end, true);
+      if (seg.code) {
+        textEl.setFontFamily(offset, end, 'Courier New');
+        textEl.setBackgroundColor(offset, end, '#f5f5f5');
+        textEl.setFontSize(offset, end, 10);
+      }
+      if (seg.link) {
+        textEl.setLinkUrl(offset, end, seg.link);
+        textEl.setForegroundColor(offset, end, '#1a73e8');
+        textEl.setUnderline(offset, end, true);
+      }
     }
     offset = end + 1;
   }
