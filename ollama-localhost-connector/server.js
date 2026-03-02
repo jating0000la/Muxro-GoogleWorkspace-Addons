@@ -18,7 +18,6 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
-const https = require('https');
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const CONFIG = {
@@ -434,118 +433,88 @@ app.post('/api/slides/improve', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-// ─── Deep Research Engine ────────────────────────────────────────────────
-const { runResearch } = require('./deep-research-engine');
-const { fetchSearchPage } = require('./deep-research-engine/search');
-const { extractLinks } = require('./deep-research-engine/extractLinks');
 
-// Deep Research: Debug — inspect search HTML and extracted links without full pipeline
-app.get('/api/research/debug', async (req, res) => {
-  const query = req.query.q;
-  if (!query) return res.status(400).json({ error: 'Missing query param: q' });
-
+// ─── Invoice Data Extraction (multimodal: images + text) ─────────────────────
+app.post('/api/sheets/invoice', async (req, res) => {
   try {
-    const html = await fetchSearchPage(query);
-    if (!html) return res.json({ error: 'Empty HTML returned (redirect/CAPTCHA?)' });
+    const { headers, images, textContent, model } = req.body;
 
-    const links = extractLinks(html);
-
-    // Return a small HTML snippet around each link pattern to help diagnose
-    const snippet = html.substring(0, 3000);
-    const hasJsname = html.includes('jsname="UWckNb"');
-    const hasRedirect = html.includes('/url?q=');
-    const hasPing = html.includes('ping="/url?');
-    const hasDataVed = html.includes('data-ved');
-    const hasCaptcha = html.includes('captcha') || html.includes('CAPTCHA') || html.includes('sorry/index');
-    const isDDG  = html.includes('duckduckgo.com') || html.includes('uddg=');
-    const isBing = html.includes('b_algo') || html.includes('bing.com');
-
-    res.json({
-      htmlLength: html.length,
-      engine: isDDG ? 'DuckDuckGo' : isBing ? 'Bing' : 'Unknown/Google',
-      hasCaptcha,
-      patterns: { hasJsname, hasRedirect, hasPing, hasDataVed,
-                  hasUddg: html.includes('uddg='), hasBAlgo: html.includes('b_algo') },
-      linksExtracted: links.length,
-      links,
-      htmlSnippet: snippet,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Deep Research: Start research (blocking - waits for full completion)
-app.post('/api/research', async (req, res) => {
-  try {
-    const { query, model } = req.body;
-
-    if (!query) {
-      return res.status(400).json({ error: 'Missing required field: query' });
+    if (!headers || !Array.isArray(headers) || headers.length === 0) {
+      return res.status(400).json({ error: 'Missing required field: headers (array of column names)' });
+    }
+    if ((!images || images.length === 0) && !textContent) {
+      return res.status(400).json({ error: 'Provide at least one image or textContent' });
     }
 
-    console.log(`[Research] Starting deep research for: "${query}"`);
+    const headersStr = headers.map((h, i) => `  Column ${i + 1}: "${h}"`).join('\n');
 
-    const progressLog = [];
-    const onProgress = (stage, detail) => {
-      const entry = `[${stage}] ${detail}`;
-      progressLog.push(entry);
-      if (CONFIG.verbose) console.log(`[Research] ${entry}`);
+    const prompt = `You are an invoice data extraction assistant. Extract ALL data from the provided invoice and return it as a JSON 2D array.
+
+The target spreadsheet has these column headers (in order):
+${headersStr}
+
+RULES:
+1. Each invoice line item MUST be a separate row.
+2. Invoice-level fields (invoice number, date, vendor name, address, etc.) should be repeated on EVERY row.
+3. If a header field is not found in the invoice, use an empty string "".
+4. Dates should be formatted as YYYY-MM-DD.
+5. Numbers should be plain numbers without currency symbols.
+6. Return ONLY a valid JSON 2D array — no markdown, no explanation, no code fences.
+
+Example (for headers: Invoice#, Date, Vendor, Item, Qty, UnitPrice, Total):
+[["INV-001","2024-01-15","Acme Corp","Widget A","2","10.00","20.00"],["INV-001","2024-01-15","Acme Corp","Widget B","1","25.00","25.00"]]
+
+Now extract all data from the invoice${textContent ? ':\n\n' + textContent : ' image(s) provided'}.`;
+
+    const ollamaBody = {
+      model: model || 'gemma3:1b',
+      prompt: prompt,
+      stream: false,
+      system: 'You are a precise data extraction engine. Output ONLY valid JSON arrays. Never include markdown fences, explanations, or extra text.',
+      options: { num_predict: CONFIG.maxTokens },
     };
 
-    const result = await runResearch(query, onProgress);
+    // Attach images for multimodal processing (gemma3 supports vision)
+    if (images && images.length > 0) {
+      ollamaBody.images = images; // array of base64 strings (no data URI prefix)
+    }
+
+    if (CONFIG.verbose) {
+      console.log(`[Invoice] Headers: ${headers.length}, Images: ${(images || []).length}, TextLen: ${(textContent || '').length}`);
+    }
+
+    const result = await forwardToOllama('/api/generate', ollamaBody);
+
+    // Try to parse the extracted data as JSON
+    let rows = null;
+    if (result && result.response) {
+      let raw = result.response.trim();
+      // Strip markdown code fences if model included them
+      const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+      if (fenceMatch) raw = fenceMatch[1].trim();
+      // Find the JSON array
+      const arrMatch = raw.match(/\[\s*\[[\s\S]*\]\s*\]/);
+      if (arrMatch) {
+        try {
+          rows = JSON.parse(arrMatch[0]);
+        } catch (parseErr) {
+          if (CONFIG.verbose) console.log('[Invoice] JSON parse failed, returning raw');
+        }
+      }
+    }
 
     res.json({
-      success: true,
-      report: result.report,
-      sources: result.sources,
-      metadata: result.metadata,
-      progressLog: progressLog,
+      success: !!rows,
+      rows: rows,
+      raw: result.response || '',
+      headers: headers,
     });
   } catch (err) {
-    console.error('[Research Error]', err.message);
+    console.error('[Invoice Error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Deep Research: Start research with SSE progress streaming
-app.get('/api/research/stream', async (req, res) => {
-  const query = req.query.q;
-  if (!query) {
-    return res.status(400).json({ error: 'Missing query parameter: q' });
-  }
-
-  // Set up Server-Sent Events
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.flushHeaders();
-
-  const sendEvent = (event, data) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  };
-
-  sendEvent('progress', { stage: 'init', detail: 'Starting deep research...' });
-
-  try {
-    const onProgress = (stage, detail) => {
-      sendEvent('progress', { stage, detail });
-    };
-
-    const result = await runResearch(query, onProgress);
-
-    sendEvent('complete', {
-      report: result.report,
-      sources: result.sources,
-      metadata: result.metadata,
-    });
-  } catch (err) {
-    sendEvent('error', { message: err.message });
-  }
-
-  res.end();
-});
 // ─── Generic AI endpoint (for custom Apps Script usage) ─────────────────────
 app.post('/api/ask', async (req, res) => {
   try {
@@ -594,9 +563,9 @@ app.listen(CONFIG.proxyPort, () => {
   console.log('║   POST /api/generate  - Generate text                ║');
   console.log('║   POST /api/chat      - Multi-turn chat              ║');
   console.log('║   POST /api/ask       - Simple Q&A                   ║');
-  console.log('║   POST /api/research  - Deep Research (blocking)     ║');
-  console.log('║   GET  /api/research/stream?q= - Research (SSE)      ║');
+
   console.log('║   POST /api/sheets/*  - Google Sheets helpers        ║');
+  console.log('║   POST /api/sheets/invoice - Invoice data extraction  ║');
   console.log('║   POST /api/docs/*    - Google Docs helpers          ║');
   console.log('║   POST /api/slides/*  - Google Slides helpers        ║');
   console.log('╚══════════════════════════════════════════════════════╝');

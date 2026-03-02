@@ -28,6 +28,7 @@ function onOpen() {
       .addItem('Fill with AI', 'fillWithAI'))
     .addSeparator()
     .addItem('Analyze Sheet Data', 'analyzeSheetData')
+    .addItem('📄 Extract Invoice', 'showInvoiceUpload')
     .addItem('Settings', 'showSettings')
     .addToUi();
 }
@@ -291,7 +292,40 @@ function fillWithAI() {
 function analyzeSheetData() {
   showSidebar();
 }
+// ─── Invoice Upload Dialog ───────────────────────────────────────────────
+function showInvoiceUpload() {
+  const html = HtmlService.createHtmlOutputFromFile('InvoiceUpload')
+    .setWidth(520)
+    .setHeight(600);
+  SpreadsheetApp.getUi().showModalDialog(html, '📄 Extract Invoice Data');
+}
 
+// ─── Get Sheet Headers (first row) ───────────────────────────────────────
+function getSheetHeaders() {
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const lastCol = sheet.getLastColumn();
+  if (lastCol === 0) return { headers: [], sheetName: sheet.getName() };
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) {
+    return String(h).trim();
+  }).filter(function(h) { return h !== ''; });
+  return { headers: headers, sheetName: sheet.getName() };
+}
+
+// ─── Append Invoice Rows to Sheet ────────────────────────────────────────
+function appendInvoiceRows(rows) {
+  if (!rows || !Array.isArray(rows) || rows.length === 0) return;
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const lastRow = Math.max(sheet.getLastRow(), 1); // at least row 1 for headers
+  const numCols = sheet.getLastColumn() || rows[0].length;
+  // Pad or trim each row to match sheet columns
+  const normalized = rows.map(function(row) {
+    var r = Array.isArray(row) ? row : [row];
+    while (r.length < numCols) r.push('');
+    return r.slice(0, numCols);
+  });
+  sheet.getRange(lastRow + 1, 1, normalized.length, numCols).setValues(normalized);
+  SpreadsheetApp.flush();
+}
 // ─── Save/Load User Settings ─────────────────────────────────────────────────
 function saveSettings(settings) {
   const props = PropertiesService.getUserProperties();

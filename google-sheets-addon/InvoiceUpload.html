@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #333; background: #f8f9fa; }
+
+    .header {
+      background: linear-gradient(135deg, #4285f4, #ea8600);
+      color: white; padding: 14px 16px; text-align: center;
+    }
+    .header h2 { font-size: 15px; margin-bottom: 2px; }
+    .header .subtitle { font-size: 11px; opacity: 0.85; }
+
+    .section { padding: 12px 14px; border-bottom: 1px solid #e0e0e0; background: white; }
+    .section-title { font-weight: 600; font-size: 11px; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+
+    .headers-list {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;
+    }
+    .header-chip {
+      display: inline-block; padding: 3px 10px; background: #e8f0fe;
+      color: #1967d2; border-radius: 12px; font-size: 11px; font-weight: 500;
+    }
+    .no-headers { color: #d93025; font-size: 12px; }
+
+    /* File upload area */
+    .upload-zone {
+      border: 2px dashed #dadce0; border-radius: 8px; padding: 20px;
+      text-align: center; cursor: pointer; transition: all 0.2s;
+      background: #fafafa; position: relative;
+    }
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: #4285f4; background: #eaf1fd;
+    }
+    .upload-zone .icon { font-size: 28px; margin-bottom: 6px; }
+    .upload-zone .label { font-size: 12px; color: #5f6368; }
+    .upload-zone .formats { font-size: 10px; color: #9aa0a6; margin-top: 4px; }
+    .upload-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+
+    .file-info {
+      display: none; margin-top: 8px; padding: 8px 10px;
+      background: #e8f5e9; border-radius: 6px; font-size: 12px; color: #2e7d32;
+    }
+    .file-info.visible { display: flex; align-items: center; justify-content: space-between; }
+    .file-info .remove { cursor: pointer; color: #d93025; font-weight: 600; font-size: 14px; }
+
+    .btn {
+      display: inline-block; padding: 10px 16px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+      width: 100%; text-align: center;
+    }
+    .btn-extract { background: linear-gradient(135deg, #4285f4, #ea8600); color: white; }
+    .btn-extract:hover { opacity: 0.9; }
+    .btn-insert { background: #34a853; color: white; }
+    .btn-insert:hover { background: #2d8e47; }
+    .btn-secondary { background: #f1f3f4; color: #3c4043; border: 1px solid #dadce0; }
+    .btn-secondary:hover { background: #e8eaed; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Progress */
+    .progress-area { display: none; padding: 12px 14px; background: white; border-bottom: 1px solid #e0e0e0; }
+    .progress-area.visible { display: block; }
+    .progress-bar-track { height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #4285f4, #ea8600); border-radius: 2px; transition: width 0.4s; width: 0%; }
+    .progress-text { font-size: 11px; color: #5f6368; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #e0e0e0; border-top-color: #4285f4; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Preview table */
+    .preview-area { display: none; padding: 12px 14px; background: white; border-bottom: 1px solid #e0e0e0; }
+    .preview-area.visible { display: block; }
+    .preview-table-wrap { max-height: 220px; overflow: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { background: #4285f4; color: white; padding: 6px 8px; text-align: left; position: sticky; top: 0; white-space: nowrap; }
+    td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+    tr:nth-child(even) { background: #f8f9fa; }
+    tr:hover { background: #eaf1fd; }
+
+    .action-row { display: flex; gap: 6px; margin-top: 10px; }
+    .action-row .btn { flex: 1; }
+
+    .error-msg { color: #d93025; font-size: 12px; padding: 8px; background: #fce8e6; border-radius: 6px; margin-top: 8px; display: none; }
+    .error-msg.visible { display: block; }
+
+    .tip { font-size: 10px; color: #9aa0a6; margin-top: 6px; line-height: 1.4; }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+  <div class="header">
+    <h2>📄 Invoice Data Extractor</h2>
+    <div class="subtitle">Upload an invoice → AI extracts data into your sheet</div>
+  </div>
+
+  <!-- Current Headers -->
+  <div class="section">
+    <div class="section-title">Sheet Headers (Row 1)</div>
+    <div id="headersList" class="headers-list">
+      <span style="color:#9aa0a6;">Loading...</span>
+    </div>
+  </div>
+
+  <!-- File Upload -->
+  <div class="section">
+    <div class="section-title">Upload Invoice</div>
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.pdf,.txt,.text">
+      <div class="icon">📎</div>
+      <div class="label">Click or drag file here</div>
+      <div class="formats">JPG, PNG, PDF, TXT</div>
+    </div>
+    <div class="file-info" id="fileInfo">
+      <span id="fileName"></span>
+      <span class="remove" onclick="clearFile()" title="Remove">&times;</span>
+    </div>
+    <div style="margin-top: 10px;">
+      <button class="btn btn-extract" id="btnExtract" onclick="extractInvoice()" disabled>
+        🔍 Extract Invoice Data
+      </button>
+    </div>
+    <div class="tip">
+      Uses <strong>gemma3:1b</strong> multimodal model. Images work best; PDFs are converted to images automatically.
+    </div>
+    <div class="error-msg" id="errorMsg"></div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-area" id="progressArea">
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progressBar"></div>
+    </div>
+    <div class="progress-text">
+      <span class="spinner"></span>
+      <span id="progressText">Reading file...</span>
+    </div>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-area" id="previewArea">
+    <div class="section-title">Extracted Data Preview</div>
+    <div class="preview-table-wrap">
+      <table id="previewTable"></table>
+    </div>
+    <div class="action-row">
+      <button class="btn btn-insert" onclick="insertData()">✅ Insert into Sheet</button>
+      <button class="btn btn-secondary" onclick="resetUI()">Cancel</button>
+    </div>
+  </div>
+
+<script>
+  const PROXY = 'http://localhost:9100';
+  let sheetHeaders = [];
+  let extractedRows = [];
+  let selectedFile = null;
+
+  // Configure pdf.js worker
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  // ─── Load headers on open ─────────────────────────────────────
+  $(function() {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        sheetHeaders = result.headers || [];
+        if (sheetHeaders.length === 0) {
+          $('#headersList').html('<span class="no-headers">⚠ No headers found in row 1. Add column headers first.</span>');
+          $('#btnExtract').prop('disabled', true);
+        } else {
+          var html = sheetHeaders.map(function(h) {
+            return '<span class="header-chip">' + $('<span>').text(h).html() + '</span>';
+          }).join('');
+          $('#headersList').html(html);
+        }
+      })
+      .withFailureHandler(function(err) {
+        $('#headersList').html('<span class="no-headers">Error reading headers: ' + (err.message || err) + '</span>');
+      })
+      .getSheetHeaders();
+  });
+
+  // ─── File selection ───────────────────────────────────────────
+  $('#fileInput').on('change', function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    selectFile(file);
+  });
+
+  // Drag & drop
+  var zone = document.getElementById('uploadZone');
+  zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+  zone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) selectFile(e.dataTransfer.files[0]);
+  });
+
+  function selectFile(file) {
+    var allowed = ['image/jpeg', 'image/png', 'application/pdf', 'text/plain'];
+    var ext = file.name.split('.').pop().toLowerCase();
+    // Also allow by extension for edge cases
+    var allowedExt = ['jpg', 'jpeg', 'png', 'pdf', 'txt', 'text'];
+    if (allowed.indexOf(file.type) === -1 && allowedExt.indexOf(ext) === -1) {
+      showError('Unsupported file type. Please use JPG, PNG, PDF, or TXT.');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      showError('File too large (max 20 MB).');
+      return;
+    }
+    selectedFile = file;
+    var sizeStr = file.size < 1024 ? file.size + ' B' :
+                  file.size < 1048576 ? (file.size / 1024).toFixed(1) + ' KB' :
+                  (file.size / 1048576).toFixed(1) + ' MB';
+    $('#fileName').text(file.name + ' (' + sizeStr + ')');
+    $('#fileInfo').addClass('visible');
+    hideError();
+    if (sheetHeaders.length > 0) $('#btnExtract').prop('disabled', false);
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    $('#fileInput').val('');
+    $('#fileInfo').removeClass('visible');
+    $('#btnExtract').prop('disabled', true);
+    hideError();
+  }
+
+  // ─── Extract invoice ──────────────────────────────────────────
+  function extractInvoice() {
+    if (!selectedFile || sheetHeaders.length === 0) return;
+    hideError();
+    $('#btnExtract').prop('disabled', true).text('Extracting...');
+    $('#progressArea').addClass('visible');
+    $('#previewArea').removeClass('visible');
+    setProgress(5, 'Reading file...');
+
+    var ext = selectedFile.name.split('.').pop().toLowerCase();
+    var isImage = ['jpg', 'jpeg', 'png'].indexOf(ext) !== -1;
+    var isPDF = ext === 'pdf';
+    var isText = ['txt', 'text'].indexOf(ext) !== -1;
+
+    if (isImage) {
+      readFileAsBase64(selectedFile, function(b64) {
+        setProgress(30, 'Sending image to AI...');
+        sendToProxy({ images: [b64] });
+      });
+    } else if (isText) {
+      readFileAsText(selectedFile, function(text) {
+        setProgress(30, 'Sending text to AI...');
+        sendToProxy({ textContent: text });
+      });
+    } else if (isPDF) {
+      setProgress(10, 'Converting PDF pages to images...');
+      convertPDFToImages(selectedFile, function(images) {
+        if (images.length === 0) {
+          showError('Could not extract any pages from the PDF.');
+          resetButton();
+          return;
+        }
+        setProgress(30, 'Sending ' + images.length + ' page(s) to AI...');
+        sendToProxy({ images: images });
+      });
+    } else {
+      showError('Unsupported file format.');
+      resetButton();
+    }
+  }
+
+  function readFileAsBase64(file, cb) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      // Strip the data URI prefix: "data:image/png;base64," → just the base64
+      var b64 = reader.result.split(',')[1];
+      cb(b64);
+    };
+    reader.onerror = function() { showError('Failed to read file.'); resetButton(); };
+    reader.readAsDataURL(file);
+  }
+
+  function readFileAsText(file, cb) {
+    var reader = new FileReader();
+    reader.onload = function() { cb(reader.result); };
+    reader.onerror = function() { showError('Failed to read file.'); resetButton(); };
+    reader.readAsText(file);
+  }
+
+  function convertPDFToImages(file, cb) {
+    if (typeof pdfjsLib === 'undefined') {
+      // Fallback: read PDF as base64 and send to model (some models handle it)
+      readFileAsBase64(file, function(b64) { cb([b64]); });
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function() {
+      var typedArray = new Uint8Array(reader.result);
+      pdfjsLib.getDocument({ data: typedArray }).promise.then(function(pdf) {
+        var numPages = Math.min(pdf.numPages, 5); // Limit to 5 pages
+        var images = [];
+        var processed = 0;
+
+        function renderPage(pageNum) {
+          pdf.getPage(pageNum).then(function(page) {
+            // Render at 2x scale for better OCR quality
+            var scale = 2.0;
+            var viewport = page.getViewport({ scale: scale });
+            var canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            var ctx = canvas.getContext('2d');
+
+            page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function() {
+              // Get base64 without prefix
+              var dataUrl = canvas.toDataURL('image/png');
+              images.push(dataUrl.split(',')[1]);
+              processed++;
+              setProgress(10 + Math.round(20 * processed / numPages),
+                'Rendered page ' + processed + '/' + numPages);
+              if (processed === numPages) {
+                cb(images);
+              } else {
+                renderPage(pageNum + 1);
+              }
+            });
+          });
+        }
+        if (numPages > 0) renderPage(1);
+        else cb([]);
+      }).catch(function(err) {
+        showError('PDF error: ' + err.message);
+        cb([]);
+      });
+    };
+    reader.onerror = function() { showError('Failed to read PDF.'); cb([]); };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ─── Send to proxy server ─────────────────────────────────────
+  function sendToProxy(payload) {
+    payload.headers = sheetHeaders;
+    payload.model = 'gemma3:1b';
+
+    setProgress(40, 'AI is analyzing the invoice...');
+
+    // Animate progress while waiting
+    var fakeProgress = 40;
+    var interval = setInterval(function() {
+      fakeProgress = Math.min(fakeProgress + 2, 90);
+      setProgress(fakeProgress, 'AI is extracting data...');
+    }, 2000);
+
+    $.ajax({
+      url: PROXY + '/api/sheets/invoice',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify(payload),
+      timeout: 300000 // 5 min
+    }).done(function(resp) {
+      clearInterval(interval);
+      setProgress(100, 'Extraction complete!');
+
+      if (resp.success && resp.rows && resp.rows.length > 0) {
+        extractedRows = resp.rows;
+        showPreview();
+      } else if (resp.raw) {
+        // Try to show raw response and let user know
+        showError('AI could not parse structured data. Raw response:\n' + resp.raw.substring(0, 500));
+        resetButton();
+      } else {
+        showError('No data extracted. Try a clearer image or text file.');
+        resetButton();
+      }
+    }).fail(function(xhr) {
+      clearInterval(interval);
+      var msg = 'Connection failed. ';
+      if (xhr.responseJSON && xhr.responseJSON.error) msg += xhr.responseJSON.error;
+      else msg += 'Is the Muxro AI Connector running on port 9100?';
+      showError(msg);
+      resetButton();
+    });
+  }
+
+  // ─── Preview extracted data ───────────────────────────────────
+  function showPreview() {
+    var html = '<thead><tr>';
+    sheetHeaders.forEach(function(h) {
+      html += '<th>' + $('<span>').text(h).html() + '</th>';
+    });
+    html += '</tr></thead><tbody>';
+
+    extractedRows.forEach(function(row) {
+      html += '<tr>';
+      for (var i = 0; i < sheetHeaders.length; i++) {
+        var val = (row[i] !== undefined && row[i] !== null) ? String(row[i]) : '';
+        html += '<td title="' + $('<span>').text(val).html() + '">' + $('<span>').text(val).html() + '</td>';
+      }
+      html += '</tr>';
+    });
+    html += '</tbody>';
+
+    $('#previewTable').html(html);
+    $('#previewArea').addClass('visible');
+    resetButton();
+  }
+
+  // ─── Insert data into sheet ───────────────────────────────────
+  function insertData() {
+    if (extractedRows.length === 0) return;
+    google.script.run
+      .withSuccessHandler(function() {
+        $('#previewArea').html(
+          '<div style="text-align:center;padding:20px;color:#2e7d32;font-weight:600;">' +
+          '✅ ' + extractedRows.length + ' row(s) inserted into the sheet!</div>'
+        );
+        $('#previewArea').addClass('visible');
+        setTimeout(function() { google.script.host.close(); }, 2000);
+      })
+      .withFailureHandler(function(err) {
+        showError('Error inserting data: ' + (err.message || err));
+      })
+      .appendInvoiceRows(extractedRows);
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────
+  function setProgress(pct, text) {
+    $('#progressBar').css('width', pct + '%');
+    $('#progressText').text(text);
+  }
+
+  function showError(msg) {
+    $('#errorMsg').text(msg).addClass('visible');
+    $('#progressArea').removeClass('visible');
+  }
+
+  function hideError() {
+    $('#errorMsg').removeClass('visible').text('');
+  }
+
+  function resetButton() {
+    $('#btnExtract').prop('disabled', false).text('🔍 Extract Invoice Data');
+    setTimeout(function() { $('#progressArea').removeClass('visible'); }, 500);
+  }
+
+  function resetUI() {
+    extractedRows = [];
+    clearFile();
+    $('#previewArea').removeClass('visible');
+    $('#progressArea').removeClass('visible');
+    hideError();
+  }
+</script>
+
+</body>
+</html>
