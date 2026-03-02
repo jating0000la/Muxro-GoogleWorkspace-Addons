@@ -6,9 +6,11 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #333; background: #f8f9fa; }
     
-    .header { background: linear-gradient(135deg, #fbbc04, #ea4335); color: white; padding: 16px; text-align: center; }
-    .header h2 { font-size: 16px; margin-bottom: 4px; }
-    .header .status { font-size: 11px; opacity: 0.9; }
+    .header { background: #1a1a2e; color: white; padding: 10px 14px 8px; text-align: center; }
+    .header .logo-wrap { display: block; margin: 0 auto 6px; max-width: 200px; }
+    .header .logo-wrap img { width: 100%; height: auto; display: block; border-radius: 4px; }
+    .header h2 { font-size: 13px; margin-bottom: 2px; font-weight: 500; opacity: 0.9; }
+    .header .status { font-size: 11px; opacity: 0.75; }
     .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
     .status-dot.connected { background: #81c784; }
     .status-dot.disconnected { background: #ffffff80; }
@@ -80,7 +82,10 @@
 <body>
 
   <div class="header">
-    <h2>🎯 Muxro AI for Slides</h2>
+    <span class="logo-wrap">
+      <img src="https://lh3.googleusercontent.com/pw/AP1GczNtQqMjerHgjo1LfKVKbahvcQgyeZu2Boad1FyV4mcGAiyVoGEeqql1k8xBB7SuAUHy94_k3fwwY2TVEOm953XxMbECIiYSL5cy4K0xtXyqAiwKmVkB22ELWnm6GIm5D52Ecpm2imPisA8NmVVtLDu9=w1536-h496-s-no-gm?authuser=0" alt="Muxro AI">
+    </span>
+    <h2>AI Assistant for Google Slides</h2>
     <div class="status">
       <span class="status-dot" id="statusDot"></span>
       <span id="statusText">Checking connection...</span>
