@@ -371,37 +371,55 @@
     }).done(function(resp) {
       try {
         var text = resp.response || '';
-        // Try parsing as a single array first
-        var singleMatch = text.match(/\[\s*\{[\s\S]*?\}\s*\]/g);
-        if (singleMatch && singleMatch.length > 0) {
-          // Merge multiple separate arrays (model sometimes outputs one array per slide)
-          var merged = [];
-          singleMatch.forEach(function(block) {
-            try {
-              var parsed = JSON.parse(sanitizeJSON(block));
-              if (Array.isArray(parsed)) {
-                merged = merged.concat(parsed);
-              }
-            } catch(e2) { /* skip unparseable block */ }
-          });
-          if (merged.length > 0) {
-            generatedSlides = merged;
-            var preview = generatedSlides.map(function(s, i) {
-              return 'Slide ' + (i+1) + ': ' + s.title + '\n  ' + normalizeBullets(s.bullets).join('\n  ');
-            }).join('\n\n');
-            setColoredResponse('genResponse', preview, 'generate');
-            $('#genActions').show();
-          } else {
-            setColoredResponse('genResponse', 'AI response:\n' + text, 'generate');
+
+        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+
+        // Greedy match: capture the outermost JSON array (all slides)
+        var arrayMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        var merged = [];
+
+        if (arrayMatch) {
+          try {
+            var parsed = JSON.parse(sanitizeJSON(arrayMatch[0]));
+            if (Array.isArray(parsed)) merged = parsed;
+          } catch(e2) {
+            // If full array parse fails, try matching individual slide objects
+            var objMatches = text.match(/\{[\s\S]*?"title"[\s\S]*?\}/g) || [];
+            objMatches.forEach(function(block) {
+              try {
+                var obj = JSON.parse(sanitizeJSON(block));
+                if (obj && obj.title) merged.push(obj);
+              } catch(e3) {}
+            });
           }
+        }
+
+        if (merged.length > 0) {
+          generatedSlides = merged;
+          // Show preview then auto-create slides
+          var preview = generatedSlides.map(function(s, i) {
+            return 'Slide ' + (i+1) + ': ' + s.title + '\n  • ' + normalizeBullets(s.bullets).join('\n  • ');
+          }).join('\n\n');
+          setColoredResponse('genResponse', '⏳ Creating slides...\n\n' + preview, 'generate');
+
+          google.script.run
+            .withSuccessHandler(function(count) {
+              setColoredResponse('genResponse', '✅ Created ' + count + ' slides!\n\n' + preview, 'success');
+            })
+            .withFailureHandler(function(err) {
+              setColoredResponse('genResponse', 'Error creating slides: ' + (err.message || err), 'error');
+              $('#genActions').show();
+            })
+            .createSlidesFromData(generatedSlides);
         } else {
-          setColoredResponse('genResponse', 'AI response:\n' + text, 'generate');
+          setColoredResponse('genResponse', 'Could not parse AI response. Try again or use a different model.\n\nRaw:\n' + text, 'error');
         }
       } catch(e) {
         setColoredResponse('genResponse', 'Parse error: ' + e.message + '\n\nRaw:\n' + (resp.response||''), 'error');
       }
     }).fail(function() {
-      setColoredResponse('genResponse', 'Error: Cannot connect.', 'error');
+      setColoredResponse('genResponse', 'Error: Cannot connect to the Muxro AI Connector.', 'error');
     }).always(function() {
       $('#genLoading').removeClass('visible');
     });
