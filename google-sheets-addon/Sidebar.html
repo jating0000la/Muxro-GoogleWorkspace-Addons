@@ -296,11 +296,12 @@
       timeout: 5000
     }).done(function(resp) {
       if (resp.status === 'connected') {
+        var backendName = resp.backend === 'lmstudio' ? 'LM Studio' : 'Ollama';
         $('#statusDot').addClass('connected');
-        $('#statusText').text('Connected to Ollama');
+        $('#statusText').text('Connected to ' + backendName);
         loadModels(resp.models);
       } else {
-        setDisconnected('Ollama not running');
+        setDisconnected('LLM backend not running');
       }
     }).fail(function() {
       setDisconnected('Connector not running - start Muxro AI Connector');
@@ -362,7 +363,7 @@
         }).done(function(resp) {
           setColoredResponse('chatResponse', resp.response || JSON.stringify(resp), 'chat');
         }).fail(function(xhr) {
-          setColoredResponse('chatResponse', 'Error: Cannot connect to Ollama. Make sure the connector is running.', 'error');
+          setColoredResponse('chatResponse', 'Error: Cannot connect. Make sure the connector is running.', 'error');
         }).always(function() {
           $('#chatLoading').removeClass('visible');
           $('#btnChat').prop('disabled', false);
@@ -569,7 +570,7 @@
             setColoredResponse('analyzeResponse', 'Parse error: ' + e.message + '\n\nRaw response:\n' + (resp.response || ''), 'error');
           }
         }).fail(function() {
-          setColoredResponse('analyzeResponse', 'Error: Cannot connect to Ollama connector.', 'error');
+          setColoredResponse('analyzeResponse', 'Error: Cannot connect to LLM backend.', 'error');
         }).always(function() {
           $('#analyzeLoading').removeClass('visible');
         });

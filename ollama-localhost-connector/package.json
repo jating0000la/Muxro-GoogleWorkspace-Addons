@@ -1,14 +1,18 @@
 {
-  "name": "ollama-localhost-connector",
-  "version": "1.0.0",
-  "description": "Local proxy server that bridges Google Workspace addons with Ollama LLM running on localhost",
+  "name": "muxro-llm-connector",
+  "version": "1.1.0",
+  "description": "Local proxy server that bridges Google Workspace addons with Ollama or LM Studio LLM running on localhost",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js --verbose"
+    "start:lmstudio": "LLM_BACKEND=lmstudio node server.js",
+    "dev": "node server.js --verbose",
+    "dev:lmstudio": "LLM_BACKEND=lmstudio node server.js --verbose"
   },
   "keywords": [
     "ollama",
+    "lmstudio",
+    "lm-studio",
     "google-workspace",
     "proxy",
     "llm",

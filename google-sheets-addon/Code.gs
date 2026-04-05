@@ -331,6 +331,7 @@ function saveSettings(settings) {
   const props = PropertiesService.getUserProperties();
   props.setProperty('OLLAMA_MODEL', settings.model || DEFAULT_MODEL);
   props.setProperty('CONNECTOR_URL', settings.connectorUrl || CONNECTOR_URL);
+  props.setProperty('LLM_BACKEND', settings.backend || 'ollama');
 }
 
 function loadSettings() {
@@ -338,5 +339,6 @@ function loadSettings() {
   return {
     model: props.getProperty('OLLAMA_MODEL') || DEFAULT_MODEL,
     connectorUrl: props.getProperty('CONNECTOR_URL') || CONNECTOR_URL,
+    backend: props.getProperty('LLM_BACKEND') || 'ollama',
   };
 }

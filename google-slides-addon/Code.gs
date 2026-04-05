@@ -24,6 +24,7 @@ function onOpen() {
     .addSubMenu(ui.createMenu('Generate')
       .addItem('New Presentation Outline', 'generatePresentation')
       .addItem('Slide Content for Current Slide', 'generateSlideContent')
+      .addItem('Visual Slide (AI HTML→Image)', 'showSidebar')
       .addItem('Speaker Notes', 'generateSpeakerNotes'))
     .addSeparator()
     .addSubMenu(ui.createMenu('Improve')
@@ -67,7 +68,7 @@ function getPresentationInfo() {
         const text = shape.getText().asString().trim();
         if (text) {
           // First text shape with content is likely the title
-          if (!title && index === 0 || shape.getPlaceholderType && shape.getPlaceholderType() === SlidesApp.PlaceholderType.TITLE) {
+          if (!title && (index === 0 || (shape.getPlaceholderType && shape.getPlaceholderType() === SlidesApp.PlaceholderType.TITLE))) {
             title = text;
           }
           textContent += text + '\n';
@@ -255,13 +256,95 @@ function addSpeakerNotesToSlide(slideIndex, notes) {
   return false;
 }
 
+// ─── Chunked Image Upload (google.script.run has ~256KB param limit) ─────────
+function storeImageChunk(chunkIndex, chunkData) {
+  var cache = CacheService.getUserCache();
+  cache.put('visual_chunk_' + chunkIndex, chunkData, 300); // 5 min TTL
+  return true;
+}
+
+function assembleAndInsertImage(totalChunks, mode) {
+  var cache = CacheService.getUserCache();
+  var base64 = '';
+  for (var i = 0; i < totalChunks; i++) {
+    var chunk = cache.get('visual_chunk_' + i);
+    if (!chunk) throw new Error('Missing image chunk ' + i + '. Please try again.');
+    base64 += chunk;
+    cache.remove('visual_chunk_' + i);
+  }
+
+  if (mode === 'new') {
+    return insertImageAsNewSlide_(base64);
+  } else {
+    return insertImageToCurrentSlide_(base64);
+  }
+}
+
+// ─── Internal: Decode base64 and insert full-bleed image on a slide ─────────
+function insertImageOnSlide_(slide, base64Data) {
+  var imageData = base64Data;
+  // Strip data URI prefix if present
+  if (imageData.indexOf(',') !== -1) {
+    imageData = imageData.split(',')[1];
+  }
+  var blob = Utilities.newBlob(Utilities.base64Decode(imageData), 'image/png', 'ai-visual-slide.png');
+
+  var presentation = SlidesApp.getActivePresentation();
+  var pageWidth = presentation.getPageWidth();
+  var pageHeight = presentation.getPageHeight();
+
+  var image = slide.insertImage(blob);
+  image.setLeft(0);
+  image.setTop(0);
+  image.setWidth(pageWidth);
+  image.setHeight(pageHeight);
+}
+
+// ─── Insert Image into Current Slide from Base64 ────────────────────────────
+function insertImageToCurrentSlide_(base64Data) {
+  var presentation = SlidesApp.getActivePresentation();
+  var selection = presentation.getSelection();
+  var currentPage = selection.getCurrentPage();
+
+  if (!currentPage) {
+    throw new Error('No slide selected. Please click on a slide first.');
+  }
+
+  insertImageOnSlide_(currentPage.asSlide(), base64Data);
+  return true;
+}
+
+// Backward-compatible wrapper (direct calls from sidebar for small images)
+function insertImageToCurrentSlide(base64Data) {
+  return insertImageToCurrentSlide_(base64Data);
+}
+
+// ─── Insert Image as New Slide from Base64 ───────────────────────────────────
+function insertImageAsNewSlide_(base64Data) {
+  var presentation = SlidesApp.getActivePresentation();
+  var slide = presentation.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+  insertImageOnSlide_(slide, base64Data);
+  return presentation.getSlides().length;
+}
+
+function insertImageAsNewSlide(base64Data) {
+  return insertImageAsNewSlide_(base64Data);
+}
+
 // ─── Menu Action Handlers ────────────────────────────────────────────────────
+// ─── Helper: get the connector URL from saved settings or fallback ──────────
+function getConnectorUrl_() {
+  var saved = PropertiesService.getUserProperties().getProperty('CONNECTOR_URL');
+  return saved || CONNECTOR_URL;
+}
+
 function generatePresentation() {
   const ui = SlidesApp.getUi();
   const response = ui.prompt('Generate Presentation', 'Enter the topic for the presentation:', ui.ButtonSet.OK_CANCEL);
 
   if (response.getSelectedButton() !== ui.Button.OK) return;
   const topic = response.getResponseText();
+  const connUrl = getConnectorUrl_();
 
   const html = HtmlService.createHtmlOutput(`
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
@@ -275,7 +358,7 @@ function generatePresentation() {
     <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     <script>
       $.ajax({
-        url: '${CONNECTOR_URL}/api/slides/generate',
+        url: '${connUrl}/api/slides/generate',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ topic: ${JSON.stringify(topic)}, slideCount: 8 }),
@@ -317,6 +400,7 @@ function generateSlideContent() {
   const response = ui.prompt('Generate Content', 'Describe what this slide should be about:', ui.ButtonSet.OK_CANCEL);
   if (response.getSelectedButton() !== ui.Button.OK) return;
 
+  const connUrl = getConnectorUrl_();
   const html = HtmlService.createHtmlOutput(`
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <div style="font-family:Arial;padding:20px;" id="status">
@@ -328,7 +412,7 @@ function generateSlideContent() {
     <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     <script>
       $.ajax({
-        url: '${CONNECTOR_URL}/api/generate',
+        url: '${connUrl}/api/generate',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
@@ -365,6 +449,7 @@ function generateSpeakerNotes() {
     return;
   }
 
+  const connUrl = getConnectorUrl_();
   const html = HtmlService.createHtmlOutput(`
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <div style="font-family:Arial;padding:20px;" id="status">
@@ -376,7 +461,7 @@ function generateSpeakerNotes() {
     <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     <script>
       $.ajax({
-        url: '${CONNECTOR_URL}/api/generate',
+        url: '${connUrl}/api/generate',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
@@ -425,7 +510,7 @@ function summarizePresentation() {
     <script>
       var presContent = ${JSON.stringify(JSON.stringify(info))};
       $.ajax({
-        url: '${CONNECTOR_URL}/api/generate',
+        url: '${getConnectorUrl_()}/api/generate',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
@@ -452,6 +537,7 @@ function saveSettings(settings) {
   const props = PropertiesService.getUserProperties();
   props.setProperty('OLLAMA_MODEL', settings.model || DEFAULT_MODEL);
   props.setProperty('CONNECTOR_URL', settings.connectorUrl || CONNECTOR_URL);
+  props.setProperty('LLM_BACKEND', settings.backend || 'ollama');
 }
 
 function loadSettings() {
@@ -459,5 +545,6 @@ function loadSettings() {
   return {
     model: props.getProperty('OLLAMA_MODEL') || DEFAULT_MODEL,
     connectorUrl: props.getProperty('CONNECTOR_URL') || CONNECTOR_URL,
+    backend: props.getProperty('LLM_BACKEND') || 'ollama',
   };
 }

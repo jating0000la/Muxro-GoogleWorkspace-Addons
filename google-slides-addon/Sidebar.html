@@ -78,6 +78,7 @@
     .slide-preview .slide-num { font-weight: 600; color: #ea4335; }
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -94,6 +95,7 @@
 
   <div class="tab-bar">
     <div class="tab active" data-tab="generate">Generate</div>
+    <div class="tab" data-tab="visual">Visual</div>
     <div class="tab" data-tab="improve">Improve</div>
     <div class="tab" data-tab="chat">Ask AI</div>
   </div>
@@ -107,6 +109,7 @@
     <span class="chip chip-notes">Notes</span>
     <span class="chip chip-fix">Fix</span>
     <span class="chip chip-chat">Chat</span>
+    <span class="chip chip-generate">Visual</span>
   </div>
 
   <!-- Global Model Selector -->
@@ -160,6 +163,74 @@
       </div>
     </div>
   </div>
+
+  <!-- Visual Tab -->
+  <div id="tab-visual" class="tab-content" style="display:none;">
+    <div class="section">
+      <div class="section-title">AI Visual Slide (HTML → Image)</div>
+      <p style="font-size:11px;color:#5f6368;margin-bottom:8px;">AI generates a full HTML+CSS design, converts it to an image, and inserts it into your slide.</p>
+      
+      <label>Slide Topic / Content</label>
+      <textarea id="visualTopic" placeholder="e.g., Q3 Revenue Growth: 23% increase, $4.2M total revenue, Top markets: US, EU, Asia..."></textarea>
+      
+      <label>Visual Style</label>
+      <select id="visualStyle">
+        <option value="modern-dark">Modern Dark</option>
+        <option value="modern-light">Modern Light</option>
+        <option value="gradient-vibrant">Vibrant Gradient</option>
+        <option value="minimal-clean">Minimal Clean</option>
+        <option value="corporate-blue">Corporate Blue</option>
+        <option value="creative-bold">Creative Bold</option>
+        <option value="tech-neon">Tech / Neon</option>
+        <option value="elegant-serif">Elegant Serif</option>
+      </select>
+      
+      <label>Insert As</label>
+      <select id="visualInsertMode">
+        <option value="current">Replace current slide</option>
+        <option value="new">Add as new slide</option>
+      </select>
+      
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="generateVisualSlide()">🎨 Generate Visual Slide</button>
+      </div>
+    </div>
+    
+    <div class="loading" id="visualLoading">
+      <div class="spinner"></div>
+      <div style="margin-top:6px;font-size:11px;color:#5f6368;" id="visualLoadingText">Generating HTML design...</div>
+    </div>
+    
+    <div class="section" style="padding:8px 12px;">
+      <div class="response-area" id="visualResponse"></div>
+      
+      <!-- Live HTML Preview -->
+      <div id="visualPreviewWrap" style="display:none;margin-top:8px;">
+        <label>Live HTML Preview (scaled to sidebar)</label>
+        <div id="visualHtmlPreview" style="border:2px solid #dadce0;border-radius:6px;overflow:hidden;background:#fff;position:relative;width:310px;height:174px;">
+          <!-- Scaled-down live HTML renders here -->
+          <div id="visualHtmlInner" style="width:960px;height:540px;transform-origin:0 0;transform:scale(0.3229);overflow:hidden;position:absolute;top:0;left:0;"></div>
+        </div>
+
+        <!-- Image Preview (shown after conversion) -->
+        <div id="visualImagePreviewWrap" style="display:none;margin-top:8px;">
+          <label>Converted Image Preview</label>
+          <div id="visualImagePreview" style="border:1px solid #dadce0;border-radius:6px;overflow:hidden;background:#fff;"></div>
+        </div>
+
+        <div class="btn-group" style="margin-top:8px;">
+          <button class="btn btn-primary" id="btnConvertImage" onclick="convertPreviewToImage()">📸 Convert to Image</button>
+          <button class="btn btn-secondary" onclick="regenerateVisual()">🔄 Regenerate</button>
+        </div>
+        <div class="btn-group" style="margin-top:6px;">
+          <button class="btn btn-success" id="btnInsertSlide" onclick="insertVisualSlide()" disabled>Insert into Slide</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden offscreen render area for html2canvas (full 960x540 for capture) -->
+  <div id="visualRenderArea" style="position:fixed;left:-9999px;top:-9999px;z-index:-1;"></div>
 
   <!-- Improve Tab -->
   <div id="tab-improve" class="tab-content" style="display:none;">
@@ -314,11 +385,12 @@
     $.ajax({ url: PROXY + '/api/status', method: 'GET', timeout: 5000 })
       .done(function(resp) {
         if (resp.status === 'connected') {
+          var backendName = resp.backend === 'lmstudio' ? 'LM Studio' : 'Ollama';
           $('#statusDot').addClass('connected');
-          $('#statusText').text('Connected to Ollama');
+          $('#statusText').text('Connected to ' + backendName);
           loadModels(resp.models);
         } else {
-          setDisconnected('Ollama not running');
+          setDisconnected('LLM backend not running');
         }
       }).fail(function() {
         setDisconnected('Connector not running');
@@ -372,7 +444,8 @@
       try {
         var text = resp.response || '';
 
-        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        // Strip thinking tags (qwen3 etc.) and markdown code fences
+        text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
         text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
 
         // Greedy match: capture the outermost JSON array (all slides)
@@ -468,6 +541,9 @@
       }).done(function(resp) {
         try {
           var text = resp.response || '';
+          // Strip thinking tags (qwen3 etc.) and code fences
+          text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+          text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
           var match = text.match(/\{[\s\S]*\}/);
           if (match) {
             improvedData = JSON.parse(sanitizeJSON(match[0]));
@@ -630,7 +706,7 @@
       }).done(function(resp) {
         setColoredResponse('chatResponse', resp.response || 'No response received.', 'chat');
       }).fail(function(xhr, status) {
-        setColoredResponse('chatResponse', 'Error: Cannot connect to Ollama connector. Make sure it is running on port 9100.', 'error');
+        setColoredResponse('chatResponse', 'Error: Cannot connect to LLM backend. Make sure the connector is running on port 9100.', 'error');
       }).always(function() {
         $('#chatLoading').removeClass('visible');
         $('#btnChat').prop('disabled', false);
@@ -659,6 +735,214 @@
   $('#chatInput').on('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
   });
+
+  // ─── Visual Slide: Generate HTML → Preview → Convert → Insert ──────
+  var visualBase64 = null;
+  var lastVisualTopic = '';
+  var lastVisualHtml = '';
+  var safetyCSS = '<style>*{box-sizing:border-box !important;max-width:960px !important;} div,section,article,aside,main,nav,header,footer,ul,ol{overflow:hidden !important;} h1,h2,h3,h4,h5,h6{overflow:hidden !important;white-space:nowrap;text-overflow:ellipsis;max-width:880px !important;} p,li,span,td,th{overflow:hidden !important;overflow-wrap:break-word;word-wrap:break-word;max-width:880px !important;}</style>';
+
+  function generateVisualSlide() {
+    var topic = $('#visualTopic').val().trim();
+    if (!topic) return;
+    lastVisualTopic = topic;
+
+    $('#visualLoading').addClass('visible');
+    $('#visualLoadingText').text('Generating HTML design...');
+    $('#visualResponse').removeClass('visible');
+    $('#visualPreviewWrap').hide();
+    $('#visualImagePreviewWrap').hide();
+    $('#btnInsertSlide').prop('disabled', true);
+    visualBase64 = null;
+    lastVisualHtml = '';
+
+    $.ajax({
+      url: PROXY + '/api/slides/generate-visual',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({
+        topic: topic,
+        style: $('#visualStyle').val(),
+        slideSize: { width: 960, height: 540 },
+        model: $('#modelSelect').val() || undefined
+      }),
+      timeout: 300000
+    }).done(function(resp) {
+      var html = resp.response || '';
+      if (!html || html.length < 20) {
+        setColoredResponse('visualResponse', 'AI returned empty or very short HTML. Try again or use a different model.', 'error');
+        $('#visualLoading').removeClass('visible');
+        return;
+      }
+
+      // Store the HTML and show live preview
+      lastVisualHtml = html;
+      showLiveHtmlPreview(html);
+    }).fail(function() {
+      setColoredResponse('visualResponse', 'Error: Cannot connect to the Muxro AI Connector.', 'error');
+      $('#visualLoading').removeClass('visible');
+    });
+  }
+
+  function regenerateVisual() {
+    generateVisualSlide();
+  }
+
+  // Step 1: Show live HTML preview in sidebar (scaled down via CSS transform)
+  function showLiveHtmlPreview(htmlContent) {
+    var $inner = $('#visualHtmlInner');
+    $inner.html(safetyCSS + htmlContent);
+
+    // Also prepare the offscreen full-size container for later capture
+    var $render = $('#visualRenderArea');
+    $render.empty();
+    var $container = $('<div>').css({
+      width: '960px',
+      height: '540px',
+      overflow: 'hidden',
+      position: 'relative',
+      background: '#ffffff',
+      'box-sizing': 'border-box'
+    });
+    $container.html(safetyCSS + htmlContent);
+    $render.append($container);
+
+    // Show the preview section
+    $('#visualPreviewWrap').show();
+    $('#visualImagePreviewWrap').hide();
+    $('#btnInsertSlide').prop('disabled', true);
+    setColoredResponse('visualResponse', 'Live HTML preview is ready. Click "Convert to Image" to capture it as PNG for your slide.', 'success');
+    $('#visualLoading').removeClass('visible');
+  }
+
+  // Step 2: Convert the live HTML preview to a PNG image
+  function convertPreviewToImage() {
+    if (!lastVisualHtml) {
+      setColoredResponse('visualResponse', 'No HTML to convert. Generate first.', 'error');
+      return;
+    }
+
+    $('#visualLoading').addClass('visible');
+    $('#visualLoadingText').text('Converting HTML to image...');
+    $('#btnConvertImage').prop('disabled', true);
+
+    var $render = $('#visualRenderArea');
+    var $container = $render.children().first();
+
+    if (!$container.length) {
+      // Re-create if cleaned up
+      $container = $('<div>').css({
+        width: '960px',
+        height: '540px',
+        overflow: 'hidden',
+        position: 'relative',
+        background: '#ffffff',
+        'box-sizing': 'border-box'
+      });
+      $container.html(safetyCSS + lastVisualHtml);
+      $render.append($container);
+    }
+
+    // Wait for layout, then capture at 2x (1920x1080 output)
+    setTimeout(function() {
+      html2canvas($container[0], {
+        width: 960,
+        height: 540,
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+        logging: false
+      }).then(function(canvas) {
+        visualBase64 = canvas.toDataURL('image/png');
+
+        // Show converted image preview
+        var $imgPreview = $('#visualImagePreview');
+        $imgPreview.empty();
+        var previewWidth = 310;
+        var previewHeight = Math.round(previewWidth * (540 / 960));
+        var $img = $('<img>').attr('src', visualBase64).css({
+          width: previewWidth + 'px',
+          height: previewHeight + 'px',
+          display: 'block'
+        });
+        $imgPreview.append($img);
+        $('#visualImagePreviewWrap').show();
+
+        // Enable insert button
+        $('#btnInsertSlide').prop('disabled', false);
+        setColoredResponse('visualResponse', '✅ Image captured (1920×1080). Review and click "Insert into Slide".', 'success');
+
+        $render.empty();
+        $('#visualLoading').removeClass('visible');
+        $('#btnConvertImage').prop('disabled', false);
+      }).catch(function(err) {
+        setColoredResponse('visualResponse', 'html2canvas error: ' + (err.message || err), 'error');
+        $render.empty();
+        $('#visualLoading').removeClass('visible');
+        $('#btnConvertImage').prop('disabled', false);
+      });
+    }, 500);
+  }
+
+  function insertVisualSlide() {
+    if (!visualBase64) {
+      setColoredResponse('visualResponse', 'No image ready. Generate first.', 'error');
+      return;
+    }
+
+    $('#visualLoading').addClass('visible');
+    $('#visualLoadingText').text('Uploading image...');
+
+    var mode = $('#visualInsertMode').val();
+
+    // google.script.run has a ~256KB parameter limit.
+    // Split base64 into 90KB chunks and upload via CacheService.
+    var CHUNK_SIZE = 90000;
+    var data = visualBase64;
+    var chunks = [];
+    for (var i = 0; i < data.length; i += CHUNK_SIZE) {
+      chunks.push(data.substring(i, i + CHUNK_SIZE));
+    }
+
+    var uploaded = 0;
+
+    function uploadNext() {
+      if (uploaded >= chunks.length) {
+        // All chunks stored — assemble and insert
+        $('#visualLoadingText').text('Inserting image into slide...');
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (mode === 'new') {
+              setColoredResponse('visualResponse', '✅ Visual slide added as slide #' + result + '!', 'success');
+            } else {
+              setColoredResponse('visualResponse', '✅ Visual slide inserted on current slide!', 'success');
+            }
+            $('#visualLoading').removeClass('visible');
+          })
+          .withFailureHandler(function(err) {
+            setColoredResponse('visualResponse', 'Error inserting: ' + (err.message || err), 'error');
+            $('#visualLoading').removeClass('visible');
+          })
+          .assembleAndInsertImage(chunks.length, mode);
+        return;
+      }
+
+      $('#visualLoadingText').text('Uploading chunk ' + (uploaded + 1) + ' of ' + chunks.length + '...');
+      google.script.run
+        .withSuccessHandler(function() {
+          uploaded++;
+          uploadNext();
+        })
+        .withFailureHandler(function(err) {
+          setColoredResponse('visualResponse', 'Error uploading chunk: ' + (err.message || err), 'error');
+          $('#visualLoading').removeClass('visible');
+        })
+        .storeImageChunk(uploaded, chunks[uploaded]);
+    }
+
+    uploadNext();
+  }
 
   checkConnection();
 </script>

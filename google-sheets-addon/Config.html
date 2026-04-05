@@ -19,7 +19,14 @@
 </head>
 <body>
   <h3 style="margin:0 0 4px 0;">Muxro AI Settings</h3>
-  <p style="color:#5f6368;font-size:12px;">Configure connection to your local Ollama instance.</p>
+  <p style="color:#5f6368;font-size:12px;">Configure connection to your local LLM backend.</p>
+
+  <label>LLM Backend</label>
+  <select id="backend" style="width:100%;padding:8px 10px;border:1px solid #dadce0;border-radius:6px;font-size:13px;">
+    <option value="ollama">Ollama (localhost:11434)</option>
+    <option value="lmstudio">LM Studio (localhost:1234)</option>
+  </select>
+  <div class="help">Choose which local LLM server to use</div>
 
   <label>Connector URL</label>
   <input type="text" id="connectorUrl" placeholder="http://localhost:9100" />
@@ -27,7 +34,7 @@
 
   <label>Default Model</label>
   <input type="text" id="model" placeholder="llama3.2" />
-  <div class="help">Ollama model name (e.g., llama3.2, mistral, codellama)</div>
+  <div class="help">Model name (Ollama: llama3.2, mistral | LM Studio: as shown in LM Studio)</div>
 
   <button class="btn btn-primary" onclick="save()">Save Settings</button>
   <button class="btn" style="background:#f1f3f4;color:#3c4043;margin-left:8px;" onclick="testConnection()">Test Connection</button>
@@ -40,15 +47,28 @@
     if (settings) {
       $('#connectorUrl').val(settings.connectorUrl || 'http://localhost:9100');
       $('#model').val(settings.model || 'llama3.2');
+      $('#backend').val(settings.backend || 'ollama');
     }
   }).loadSettings();
 
   function save() {
-    google.script.run.withSuccessHandler(function() {
-      showMsg('Settings saved successfully!', 'success');
-    }).saveSettings({
-      connectorUrl: $('#connectorUrl').val(),
-      model: $('#model').val()
+    var url = $('#connectorUrl').val() || 'http://localhost:9100';
+    var backend = $('#backend').val();
+    // Switch backend on the connector server
+    $.ajax({
+      url: url + '/api/backend',
+      method: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({ backend: backend }),
+      timeout: 5000
+    }).always(function() {
+      google.script.run.withSuccessHandler(function() {
+        showMsg('Settings saved successfully!', 'success');
+      }).saveSettings({
+        connectorUrl: $('#connectorUrl').val(),
+        model: $('#model').val(),
+        backend: backend
+      });
     });
   }
 
@@ -60,10 +80,11 @@
       timeout: 5000
     }).done(function(resp) {
       if (resp.status === 'connected') {
+        var backendName = resp.backend === 'lmstudio' ? 'LM Studio' : 'Ollama';
         var names = (resp.models || []).map(function(m) { return m.name; }).join(', ');
-        showMsg('Connected! Available models: ' + (names || 'none'), 'success');
+        showMsg('Connected to ' + backendName + '! Models: ' + (names || 'none'), 'success');
       } else {
-        showMsg('Connector reached, but Ollama is not responding.', 'error');
+        showMsg('Connector reached, but LLM backend is not responding.', 'error');
       }
     }).fail(function() {
       showMsg('Cannot reach connector. Make sure Muxro AI Connector is running.', 'error');

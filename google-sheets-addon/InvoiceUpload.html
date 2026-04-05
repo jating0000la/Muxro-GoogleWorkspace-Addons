@@ -89,6 +89,15 @@
     .error-msg.visible { display: block; }
 
     .tip { font-size: 10px; color: #9aa0a6; margin-top: 6px; line-height: 1.4; }
+
+    /* Connection status */
+    .conn-status { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #dadce0; flex-shrink: 0; }
+    .status-dot.connected { background: #34a853; }
+    .status-dot.disconnected { background: #d93025; }
+    .status-text { font-size: 11px; color: #5f6368; }
+
+    .model-select { width: 100%; padding: 6px 8px; border: 1px solid #dadce0; border-radius: 6px; font-size: 12px; background: white; margin-bottom: 6px; }
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -111,6 +120,18 @@
     </div>
   </div>
 
+  <!-- Connection & Model -->
+  <div class="section">
+    <div class="conn-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">Checking connection...</span>
+    </div>
+    <div class="section-title">AI Model</div>
+    <select id="modelSelect" class="model-select">
+      <option value="">Loading models...</option>
+    </select>
+  </div>
+
   <!-- File Upload -->
   <div class="section">
     <div class="section-title">Upload Invoice</div>
@@ -130,7 +151,7 @@
       </button>
     </div>
     <div class="tip">
-      Uses <strong>gemma3:1b</strong> multimodal model. Images work best; PDFs are converted to images automatically.
+      For images/PDFs, use a <strong>multimodal</strong> model (e.g. gemma3, llava). PDFs are converted to images automatically.
     </div>
     <div class="error-msg" id="errorMsg"></div>
   </div>
@@ -169,8 +190,53 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
+  // ─── Check connection and load models ─────────────────────────
+  function checkConnection() {
+    $.ajax({
+      url: PROXY + '/api/status',
+      method: 'GET',
+      timeout: 5000
+    }).done(function(resp) {
+      if (resp.status === 'connected') {
+        var backendName = resp.backend === 'lmstudio' ? 'LM Studio' : 'Ollama';
+        $('#statusDot').addClass('connected');
+        $('#statusText').text('Connected to ' + backendName);
+        loadModels(resp.models);
+      } else {
+        setDisconnected('LLM backend not running');
+      }
+    }).fail(function() {
+      setDisconnected('Connector not running - start Muxro AI Connector');
+    });
+  }
+
+  function setDisconnected(msg) {
+    $('#statusDot').addClass('disconnected');
+    $('#statusText').text(msg);
+  }
+
+  function loadModels(models) {
+    var sel = $('#modelSelect');
+    sel.empty();
+    if (models && models.length) {
+      models.forEach(function(m) {
+        var label = m.name + (m.size ? ' (' + formatSize(m.size) + ')' : '');
+        sel.append($('<option>').val(m.name).text(label));
+      });
+    } else {
+      sel.append($('<option>').val('').text('No models available'));
+    }
+  }
+
+  function formatSize(bytes) {
+    if (!bytes) return '';
+    var gb = bytes / (1024*1024*1024);
+    return gb >= 1 ? gb.toFixed(1) + ' GB' : (bytes / (1024*1024)).toFixed(0) + ' MB';
+  }
+
   // ─── Load headers on open ─────────────────────────────────────
   $(function() {
+    checkConnection();
     google.script.run
       .withSuccessHandler(function(result) {
         sheetHeaders = result.headers || [];
@@ -350,7 +416,7 @@
   // ─── Send to proxy server ─────────────────────────────────────
   function sendToProxy(payload) {
     payload.headers = sheetHeaders;
-    payload.model = 'gemma3:1b';
+    payload.model = $('#modelSelect').val() || 'gemma3:1b';
 
     setProgress(40, 'AI is analyzing the invoice...');
 
@@ -375,9 +441,15 @@
         extractedRows = resp.rows;
         showPreview();
       } else if (resp.raw) {
-        // Try to show raw response and let user know
-        showError('AI could not parse structured data. Raw response:\n' + resp.raw.substring(0, 500));
-        resetButton();
+        // Client-side fallback: try to salvage rows from raw response
+        var salvaged = tryParseRaw(resp.raw);
+        if (salvaged && salvaged.length > 0) {
+          extractedRows = salvaged;
+          showPreview();
+        } else {
+          showError('AI could not parse structured data. Raw response:\n' + resp.raw.substring(0, 500));
+          resetButton();
+        }
       } else {
         showError('No data extracted. Try a clearer image or text file.');
         resetButton();
@@ -434,6 +506,52 @@
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
+  function tryParseRaw(raw) {
+    try {
+      // Strip <think> blocks and code fences
+      raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      var fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+      if (fenceMatch) raw = fenceMatch[1].trim();
+      // Try full 2D array parse first
+      var arrMatch = raw.match(/\[\s*\[[\s\S]*\]\s*\]/);
+      if (arrMatch) {
+        try {
+          var parsed = JSON.parse(arrMatch[0]);
+          if (Array.isArray(parsed)) return filterHeaderRow(parsed);
+        } catch (_) {}
+      }
+      // Truncated recovery: find individual complete arrays
+      var start = raw.indexOf('[[');
+      if (start !== -1) {
+        var inner = raw.substring(start).match(/\[(?:["[][^\]]*|[^\[\]])*\]/g);
+        if (inner && inner.length > 0) {
+          var rows = [];
+          for (var i = 0; i < inner.length; i++) {
+            try {
+              var r = JSON.parse(inner[i]);
+              if (Array.isArray(r)) rows.push(r);
+            } catch (_) {}
+          }
+          if (rows.length > 0) return filterHeaderRow(rows);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function filterHeaderRow(rows) {
+    if (!rows || rows.length <= 1 || sheetHeaders.length === 0) return rows;
+    var headerLower = sheetHeaders.map(function(h) { return String(h).toLowerCase().trim(); });
+    return rows.filter(function(row) {
+      if (!Array.isArray(row)) return false;
+      var matchCount = 0;
+      for (var i = 0; i < headerLower.length && i < row.length; i++) {
+        if (String(row[i]).toLowerCase().trim() === headerLower[i]) matchCount++;
+      }
+      return matchCount < headerLower.length * 0.6;
+    });
+  }
+
   function setProgress(pct, text) {
     $('#progressBar').css('width', pct + '%');
     $('#progressText').text(text);

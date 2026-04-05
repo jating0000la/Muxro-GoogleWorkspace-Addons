@@ -314,11 +314,12 @@
     $.ajax({ url: PROXY + '/api/status', method: 'GET', timeout: 5000 })
       .done(function(resp) {
         if (resp.status === 'connected') {
+          var backendName = resp.backend === 'lmstudio' ? 'LM Studio' : 'Ollama';
           $('#statusDot').addClass('connected');
-          $('#statusText').text('Connected to Ollama');
+          $('#statusText').text('Connected to ' + backendName);
           loadModels(resp.models);
         } else {
-          setDisconnected('Ollama not running');
+          setDisconnected('LLM backend not running');
         }
       }).fail(function() {
         setDisconnected('Connector not running');

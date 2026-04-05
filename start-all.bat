@@ -7,6 +7,21 @@ echo   Muxro AI - Automatic Setup
 echo ============================================================
 echo.
 
+:: ─── Choose LLM Backend ─────────────────────────────────────────
+echo Which LLM backend do you want to use?
+echo   1. Ollama  (default, localhost:11434)
+echo   2. LM Studio (localhost:1234)
+echo.
+set /p BACKEND_CHOICE=Enter 1 or 2 (default=1): 
+if "%BACKEND_CHOICE%"=="2" (
+    set "LLM_BACKEND=lmstudio"
+    echo    Selected: LM Studio
+) else (
+    set "LLM_BACKEND=ollama"
+    echo    Selected: Ollama
+)
+echo.
+
 :: ─── Save the script directory ───────────────────────────────────
 set "BASE_DIR=%~dp0"
 set "CONNECTOR_DIR=%BASE_DIR%ollama-localhost-connector"
@@ -26,6 +41,12 @@ for /f "tokens=*" %%v in ('node -v') do echo    Found Node.js %%v
 echo.
 
 :: ─── 2. Check Ollama ────────────────────────────────────────────
+if "!LLM_BACKEND!"=="lmstudio" (
+    echo [2/6] Skipping Ollama check ^(using LM Studio^)...
+    echo    Make sure LM Studio is running with a model loaded on port 1234.
+    echo.
+    goto skip_ollama
+)
 echo [2/6] Checking Ollama...
 where ollama >nul 2>&1
 if %ERRORLEVEL% neq 0 (
@@ -43,13 +64,25 @@ if %ERRORLEVEL% neq 0 (
     for /f "tokens=*" %%v in ('ollama --version 2^>nul') do echo    Found %%v
 )
 echo.
+:skip_ollama
 
 :: ─── 3. Remove any port proxy conflicts on 11434 ────────────────
+if "!LLM_BACKEND!"=="lmstudio" (
+    echo [3/6] Skipping port proxy check ^(using LM Studio^)...
+    echo.
+    goto skip_portproxy
+)
 echo [3/6] Checking for port proxy conflicts on port 11434...
 powershell -Command "& { $proxy = netsh interface portproxy show v4tov4 2>$null; if ($proxy -match '11434') { Write-Host '   Removing conflicting port proxy on 11434...'; netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=11434 2>$null; Write-Host '   Port proxy removed.' } else { Write-Host '   No port proxy conflict found.' } }"
 echo.
+:skip_portproxy
 
 :: ─── 4. Start Ollama serve ───────────────────────────────────────
+if "!LLM_BACKEND!"=="lmstudio" (
+    echo [4/6] Skipping Ollama server ^(using LM Studio^)...
+    echo.
+    goto skip_ollama_serve
+)
 echo [4/6] Starting Ollama server...
 
 :: Check if Ollama is already serving
@@ -91,8 +124,15 @@ if "%OLLAMA_STATUS%"=="RUNNING" (
     echo    Ollama is ready!
 )
 echo.
+:skip_ollama_serve
 
 :: ─── 5. Pull required models ────────────────────────────────────
+if "!LLM_BACKEND!"=="lmstudio" (
+    echo [5/6] Skipping model pull ^(LM Studio manages its own models^)...
+    echo    Load a model in LM Studio before using the addon.
+    echo.
+    goto skip_models
+)
 echo [5/6] Pulling AI models (skip if already downloaded)...
 echo.
 
@@ -105,6 +145,9 @@ echo.
 echo    Installed models:
 ollama list
 echo.
+
+echo.
+:skip_models
 
 :: ─── 6. Install npm deps & start proxy server ───────────────────
 echo [6/6] Starting the proxy connector server...
@@ -131,21 +174,26 @@ echo ============================================================
 echo   ALL SYSTEMS GO!
 echo ============================================================
 echo.
-echo   Ollama       : http://localhost:11434
+if "!LLM_BACKEND!"=="lmstudio" (
+    echo   Backend      : LM Studio ^(http://localhost:1234^)
+) else (
+    echo   Backend      : Ollama ^(http://localhost:11434^)
+)
 echo   Proxy Server : http://localhost:9100
-echo   Models       : gemma3:1b (general)
 echo.
 echo   Next steps:
 echo     1. Copy the Google Apps Script files into your
 echo        Sheets / Docs / Slides script editor
 echo     2. Open the addon sidebar from the menu
-echo     3. Select your preferred LLM model in the sidebar
-echo     4. Use AI features - they connect through the proxy
-
+echo     3. In Settings, select your LLM backend ^(Ollama or LM Studio^)
+echo     4. Select your preferred model in the sidebar
+echo     5. Use AI features - they connect through the proxy
+echo.
 echo   Press Ctrl+C to stop the proxy server.
 echo ============================================================
 echo.
 
+set "LLM_BACKEND=!LLM_BACKEND!"
 node server.js
 set NODE_EXIT=%ERRORLEVEL%
 echo.

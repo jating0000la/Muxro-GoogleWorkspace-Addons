@@ -1,11 +1,11 @@
 /**
  * Muxro AI Slides — Library Wrapper Code.gs
  * 
- * For new users who have added the MuxroAISlides library.
+ * For new users who have added the MuxroAISlider library.
  * 
  * SETUP:
  * 1. In your Apps Script project, go to Libraries (+)
- * 2. Add the MuxroAISlides library using its Script ID
+ * 2. Add the MuxroAISlider library using its Script ID
  * 3. Replace your Code.gs contents with this file
  * 4. Also copy Sidebar.html and Config.html into your project
  *    (google.script.run calls land here, not in the library)
@@ -14,73 +14,90 @@
 
 // ─── Menu & UI ───────────────────────────────────────────────────────────────
 function onOpen() {
-  MuxroAISlides.onOpen();
+  MuxroAISlider.onOpen();
 }
 
 function showSidebar() {
-  MuxroAISlides.showSidebar();
+  MuxroAISlider.showSidebar();
 }
 
 function showSettings() {
-  MuxroAISlides.showSettings();
+  MuxroAISlider.showSettings();
 }
 
 // ─── Presentation Data (return values required) ──────────────────────────────
 function getPresentationInfo() {
-  return MuxroAISlides.getPresentationInfo();
+  return MuxroAISlider.getPresentationInfo();
 }
 
 function getCurrentSlideInfo() {
-  return MuxroAISlides.getCurrentSlideInfo();
+  return MuxroAISlider.getCurrentSlideInfo();
 }
 
 // ─── Slide Manipulation ──────────────────────────────────────────────────────
 function createSlidesFromData(slidesData) {
-  return MuxroAISlides.createSlidesFromData(slidesData);
+  return MuxroAISlider.createSlidesFromData(slidesData);
 }
 
 function updateCurrentSlideContent(title, bodyText, notes) {
-  return MuxroAISlides.updateCurrentSlideContent(title, bodyText, notes);
+  return MuxroAISlider.updateCurrentSlideContent(title, bodyText, notes);
 }
 
 function addSpeakerNotesToSlide(slideIndex, notes) {
-  return MuxroAISlides.addSpeakerNotesToSlide(slideIndex, notes);
+  return MuxroAISlider.addSpeakerNotesToSlide(slideIndex, notes);
+}
+
+// ─── Visual Slide Image Insertion ────────────────────────────────────────────
+function insertImageToCurrentSlide(base64Data) {
+  return MuxroAISlider.insertImageToCurrentSlide(base64Data);
+}
+
+function insertImageAsNewSlide(base64Data) {
+  return MuxroAISlider.insertImageAsNewSlide(base64Data);
+}
+
+function storeImageChunk(chunkIndex, chunkData) {
+  return MuxroAISlider.storeImageChunk(chunkIndex, chunkData);
+}
+
+function assembleAndInsertImage(totalChunks, mode) {
+  return MuxroAISlider.assembleAndInsertImage(totalChunks, mode);
 }
 
 // ─── Menu Action Handlers ────────────────────────────────────────────────────
 function generatePresentation() {
-  MuxroAISlides.generatePresentation();
+  MuxroAISlider.generatePresentation();
 }
 
 function generateSlideContent() {
-  MuxroAISlides.generateSlideContent();
+  MuxroAISlider.generateSlideContent();
 }
 
 function generateSpeakerNotes() {
-  MuxroAISlides.generateSpeakerNotes();
+  MuxroAISlider.generateSpeakerNotes();
 }
 
 function improveCurrentSlide() {
-  MuxroAISlides.improveCurrentSlide();
+  MuxroAISlider.improveCurrentSlide();
 }
 
 function improveAllSlides() {
-  MuxroAISlides.improveAllSlides();
+  MuxroAISlider.improveAllSlides();
 }
 
 function addSpeakerNotesAll() {
-  MuxroAISlides.addSpeakerNotesAll();
+  MuxroAISlider.addSpeakerNotesAll();
 }
 
 function summarizePresentation() {
-  MuxroAISlides.summarizePresentation();
+  MuxroAISlider.summarizePresentation();
 }
 
 // ─── Settings (return value required for loadSettings) ───────────────────────
 function saveSettings(settings) {
-  MuxroAISlides.saveSettings(settings);
+  MuxroAISlider.saveSettings(settings);
 }
 
 function loadSettings() {
-  return MuxroAISlides.loadSettings();
+  return MuxroAISlider.loadSettings();
 }
